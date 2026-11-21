@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Camera, Check, Clipboard, Copy, Files, Link, Monitor, Moon, MoreHorizontal, Plus, ScanLine, ShieldCheck, Smartphone, Sun, Touchpad, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Camera, Check, Clipboard, Coffee, Copy, Files, Link, Monitor, Moon, MoreHorizontal, Plus, ScanLine, ShieldCheck, Smartphone, Sun, Touchpad, Unplug, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Bridge } from './lib/bridge';
 import { useSession } from './store/session';
@@ -55,7 +55,7 @@ export default function App() {
       <TransferQueue bridge={bridge.current} report={setNotice}/>
       </section></div>
       {session.error && <div className="error" role="alert">{session.error}<button className="icon-button" aria-label="Dismiss error" onClick={() => session.set({ error: '' })}><X size={16}/></button></div>}
-      <footer><span>Less friction. More flow.</span><div><span>{session.connected ? 'AES-256-GCM' : 'PRIVATE BY DESIGN'}</span><span>·</span><span>{session.route || 'BROWSER TO BROWSER'}</span></div></footer>
+      <footer><span>Less friction. More flow.</span><a className="coffee-link" href="https://buymeacoffee.com/MilenSebastian" target="_blank" rel="noopener noreferrer"><Coffee size={15} aria-hidden="true"/>Buy me a coffee</a><div><span>{session.connected ? 'AES-256-GCM' : 'PRIVATE BY DESIGN'}</span><span>·</span><span>{session.route || 'BROWSER TO BROWSER'}</span></div></footer>
     </main>{notice && <div className="toast" role="status">{notice}</div>}{scanner && <Scanner onScan={scanned} onClose={() => setScanner(false)}/>}
   </div>;
 }
