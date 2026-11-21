@@ -20,7 +20,9 @@ npm test
 
 Serve the Vite build and reverse-proxy `/signal` to the Node server behind **HTTPS/WSS**. Localhost is a secure-context exception; opening an HTTP LAN IP on a phone is not. The QR uses the current page origin, so load the desktop page through the same HTTPS address reachable from the phone. `npm run server` starts the relay. Set `NODE_ENV=production`, `ALLOWED_ORIGINS` to an explicit comma-separated allowlist, and optionally `PORT` (default 8787). The relay refuses production startup without the allowlist.
 
-The default ICE configuration uses no third-party service and is intended for same-network testing. Set `VITE_ICE_SERVERS` to a JSON array of STUN/TURN configurations for other networks; provision short-lived TURN credentials through your deployment. Set `VITE_RELAY_URL` to the relay's `wss://.../signal` URL. It is a public, build-time Vite configuration value, so create it as a Config variable in Vercel rather than a Secret. `VITE_SIGNAL_URL` remains accepted as a legacy alias. The `.env.example` documents variables; the Node relay reads its process environment.
+Bridge uses Cloudflare public STUN to discover direct connections across networks. An explicit `VITE_ICE_SERVERS` JSON array overrides the default. For restrictive networks, configure a TURN REST-compatible service such as coturn with shared-secret authentication. On Render, set `TURN_URLS` to its comma-separated TURN addresses and `TURN_SHARED_SECRET` to its authentication secret. The signaling service issues hour-long credentials when each device joins. Configure allocation quotas and bandwidth limits on the TURN service before enabling it on a public deployment.
+
+Set the Vercel Production Config variable `VITE_RELAY_URL` to the signaling endpoint (`wss://.../signal`). The frontend also accepts the older `VITE_SIGNAL_URL` name.
 
 ## Structure
 

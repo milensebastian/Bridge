@@ -1,6 +1,6 @@
 import { createIdentity, publicKey, deriveSession, encrypt, decrypt } from './crypto';
 import { useSession } from '../store/session';
-type Signal = { type: string; key?: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; message?: string };
+type Signal = { type: string; key?: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; message?: string; turnServer?: RTCIceServer };
 const state = useSession.getState;
 export class Bridge {
   private socket?: WebSocket;
@@ -35,7 +35,10 @@ export class Bridge {
         this.room = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
       }
       if (this.disposed) return;
-      const peer = this.peer = new RTCPeerConnection({ iceServers: JSON.parse(import.meta.env.VITE_ICE_SERVERS || '[]') as RTCIceServer[] });
+      const iceServers: RTCIceServer[] = import.meta.env.VITE_ICE_SERVERS
+        ? JSON.parse(import.meta.env.VITE_ICE_SERVERS)
+        : [{ urls: 'stun:stun.cloudflare.com:3478' }];
+      const peer = this.peer = new RTCPeerConnection({ iceServers });
       const signalUrl = import.meta.env.VITE_RELAY_URL || import.meta.env.VITE_SIGNAL_URL || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/signal`;
       const socket = this.socket = new WebSocket(signalUrl);
       const sendSignal = (value: Signal) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value)); };
@@ -51,6 +54,7 @@ export class Bridge {
           const message = JSON.parse(event.data as string) as Signal;
           if (message.type === 'error') throw Error(message.message);
           if (message.type === 'joined') {
+            if (message.turnServer) peer.setConfiguration({ iceServers: [...iceServers, message.turnServer] });
             if (this.role === 'host') {
               const url = new URL('/pair', location.origin); url.searchParams.set('r', this.room); url.hash = `pk=${ownKey}`;
               state().set({ url: url.href, status: 'Waiting for a device' });

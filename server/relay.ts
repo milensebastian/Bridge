@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'node:http';
+import { createHmac, randomUUID } from 'node:crypto';
 
 export function createRelay(server: Server, allowedOrigins: string[] = []) {
   const wss = new WebSocketServer({ server, path: '/signal', maxPayload: 64 * 1024, verifyClient: ({ origin }: { origin: string }) => !allowedOrigins.length || allowedOrigins.includes(origin) });
@@ -25,7 +26,15 @@ export function createRelay(server: Server, allowedOrigins: string[] = []) {
             room.guest = socket;
           }
           roomId = message.room;
-          socket.send(JSON.stringify({ type: 'joined' }));
+          const secret = process.env.TURN_SHARED_SECRET;
+          const urls = process.env.TURN_URLS?.split(',').map(url => url.trim()).filter(Boolean);
+          let turnServer;
+          if (secret && urls?.length) {
+            const username = `${Math.floor(Date.now() / 1000) + 3600}:${randomUUID()}`;
+            const credential = createHmac('sha1', secret).update(username).digest('base64');
+            turnServer = { urls, username, credential };
+          }
+          socket.send(JSON.stringify({ type: 'joined', turnServer }));
           return;
         }
         if (!['hello', 'offer', 'answer', 'ice'].includes(message.type)) throw Error('Signaling only');
