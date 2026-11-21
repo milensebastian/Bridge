@@ -1,0 +1,12 @@
+{
+  "name": "Bridge File Transfer",
+  "short_name": "Bridge",
+  "description": "Send files between your phone and laptop with a QR code.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafbfa",
+  "theme_color": "#fafbfa",
+  "icons": [
+    { "src": "/bridge-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
