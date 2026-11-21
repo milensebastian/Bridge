@@ -36,7 +36,7 @@ export class Bridge {
       }
       if (this.disposed) return;
       const peer = this.peer = new RTCPeerConnection({ iceServers: JSON.parse(import.meta.env.VITE_ICE_SERVERS || '[]') as RTCIceServer[] });
-      const signalUrl = import.meta.env.VITE_SIGNAL_URL || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/signal`;
+      const signalUrl = import.meta.env.VITE_RELAY_URL || import.meta.env.VITE_SIGNAL_URL || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/signal`;
       const socket = this.socket = new WebSocket(signalUrl);
       const sendSignal = (value: Signal) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value)); };
       const candidates: RTCIceCandidateInit[] = [];
