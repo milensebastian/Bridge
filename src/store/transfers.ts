@@ -1,8 +1,9 @@
+import type {Download} from '../transfer/download';
 import {create} from 'zustand';
 import type {Manifest} from '../transfer/protocol';
 
 export type Row = { id: string; label: string; direction: 'Sending' | 'Receiving'; total: number; bytes: number;
-  speedMBps: number; etaSeconds: number; status: 'Active' | 'Paused' | 'Complete' | 'Cancelled' | 'Failed'; detail?: string; download?: string };
+  speedMBps: number; etaSeconds: number; status: 'Active' | 'Paused' | 'Complete' | 'Cancelled' | 'Failed'; detail?: string; download?: Download };
 export const useTransfers = create<{queue: Row[]}>(() => ({queue: []}));
 export function update(id: string, change: Partial<Row>) {
   useTransfers.setState(s => ({queue: s.queue.map(row => row.id === id ? {...row, ...change} : row)}));

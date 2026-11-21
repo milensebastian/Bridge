@@ -1,5 +1,7 @@
 import { crc32 } from './crc32';
 import { aad, chunkSize, threshold, validateManifest, type Manifest, type Wire } from './protocol';
+import {archiveEnd, fileRecord} from './zip';
+import {downloadFor, receivedCache, recordDownload} from './download';
 import { track, update } from '../store/transfers';
 
 export class FileReceiver {
@@ -11,40 +13,36 @@ export class FileReceiver {
   private offset = 0;
   private received = 0;
   private credited = 0;
-  private checksums: number[] = [];
+  private readonly checksums: number[] = [];
+  private readonly offsets: number[] = [];
+  private position = 0;
+  private readonly zipped: boolean;
+  private committed = false;
   private checksum = 0;
   private readonly staging: string;
   private readonly progress;
   constructor(readonly manifest: Manifest, private wire: Wire, private key: CryptoKey) {
     validateManifest(manifest);
-    this.staging = manifest.transferId + '/' + crypto.randomUUID();
+    this.staging = crypto.randomUUID();
+    this.zipped = manifest.files.length > 1 || manifest.files[0].relativePath.includes('/');
     this.progress = track(manifest,'Receiving');
   }
   async start() {
-    if (!navigator.storage?.getDirectory || !navigator.serviceWorker) throw Error('This browser cannot save streamed downloads. Try a current browser in a regular tab.');
-    const registration = await navigator.serviceWorker.register('/bridge-download-sw.js',{scope:'/'});
-    const worker = registration.installing ?? registration.waiting;
-    if (!registration.active && worker) await new Promise<void>((ok,fail) => {
-      const changed = () => {
-        if (worker.state === 'activated' || worker.state === 'redundant') {
-          worker.removeEventListener('statechange',changed);
-          if (worker.state === 'activated') ok(); else fail(Error('Download service unavailable.'));
-        }
-      };
-      worker.addEventListener('statechange',changed); changed();
-    });
-    const root = await navigator.storage.getDirectory();
-    this.root = await root.getDirectoryHandle(this.manifest.transferId,{create:true});
-    this.directory = await this.root.getDirectoryHandle(this.staging.split('/')[1],{create:true});
+    if (!navigator.storage?.getDirectory) throw Error('This browser cannot save streamed downloads. Try a current browser in a regular tab.');
+    this.root = await receivedCache();
+    this.directory = await this.root.getDirectoryHandle(this.staging,{create:true});
+    this.handle = await this.directory.getFileHandle('payload',{create:true});
+    this.output = await this.handle.createWritable();
     await this.openFile();
     await this.ack(false);
   }
   private async openFile() {
-    const item = this.manifest.files[this.index];
-    let dir = await this.directory!.getDirectoryHandle('files',{create:true});
-    for (const part of item.relativePath.split('/').slice(0,-1)) dir = await dir.getDirectoryHandle(part,{create:true});
-    this.handle = await dir.getFileHandle(item.name,{create:true});
-    this.output = await this.handle.createWritable();
+    if(this.zipped) {
+      this.offsets.push(this.position);
+      const header=fileRecord(this.manifest.files[this.index],0,this.position,false);
+      await this.output!.write(header);
+      this.position+=header.length;
+    }
     this.offset = this.checksum = 0;
   }
   private async ack(complete: boolean) {
@@ -62,6 +60,7 @@ export class FileReceiver {
     if (crc32(bytes) !== h.getUint32(13)) throw Error('File checksum mismatch.');
     await this.output.write(bytes);
     this.checksum = crc32(bytes,this.checksum);
+    this.position += length;
     this.offset += length;
     this.received += length;
     this.progress(this.received);
@@ -70,25 +69,45 @@ export class FileReceiver {
   async finishFile(fileId: number) {
     const item = this.manifest.files[this.index];
     if (!this.output || item.fileId !== fileId || this.offset !== item.size) throw Error('Incomplete file.');
-    await this.output.close();
-    this.output = undefined;
-    if ((await this.handle!.getFile()).size !== item.size) throw Error('Saved file size mismatch.');
-    this.checksums.push(this.checksum);
+    if(this.zipped) {
+      // Patch the CRC in the local ZIP header once this entry is complete.
+      const checksum=new DataView(new ArrayBuffer(4));
+      checksum.setUint32(0,this.checksum,true);
+      await this.output.write({type:'write',position:this.offsets[this.index]+14,data:checksum.buffer});
+      await this.output.seek(this.position);
+      this.checksums.push(this.checksum);
+    }
     this.index++;
     if (this.index < this.manifest.files.length) { await this.openFile(); return false; }
-    const meta = await (await this.directory!.getFileHandle('manifest',{create:true})).createWritable();
-    try { await meta.write(JSON.stringify({files:this.manifest.files,checksums:this.checksums})); await meta.close(); }
-    catch (error) { await meta.abort().catch(()=>{}); throw error; }
-    const url = '/bridge-download/' + this.staging;
-    const a = document.createElement('a');
-    a.href = url; a.download = this.manifest.files.length === 1 && !item.relativePath.includes('/') ? item.name : 'Bridge files.zip';
-    document.body.append(a); a.click(); a.remove();
-    update(this.manifest.transferId,{status:'Complete',download:url});
+    if(this.zipped) {
+      const start=this.position;
+      for (const [i,file] of this.manifest.files.entries()) {
+        const header=fileRecord(file,this.checksums[i],this.offsets[i],true);
+        await this.output.write(header);
+        this.position+=header.length;
+      }
+      const end=archiveEnd(this.index,start,this.position);
+      await this.output.write(end);
+      this.position+=end.length;
+    }
+    await this.output.close();
+    this.output=undefined;
+    const file=await this.handle!.getFile();
+    if(file.size!==this.position)throw Error('Saved file size mismatch.');
+    const name=this.zipped?'Bridge files.zip':item.name;
+    const label=this.zipped ? this.manifest.files[0].relativePath.split('/')[0]+' ('+this.index+' files)' : name;
+    await recordDownload(this.directory!,{id:this.manifest.transferId,label,total:this.received,name,finished:Date.now()});
+    this.committed=true;
+    const download=downloadFor(file,name,this.staging);
+    update(this.manifest.transferId,{status:'Complete',download});
     await this.ack(true);
+    const a=document.createElement('a');
+    a.href=download.url;a.download=name;
+    document.body.append(a);a.click();a.remove();
     return true;
   }
   async discard() {
     await this.output?.abort().catch(()=>{});
-    await this.root?.removeEntry(this.staging.split('/')[1],{recursive:true}).catch(()=>{});
+    if(!this.committed) await this.root?.removeEntry(this.staging,{recursive:true}).catch(()=>{});
   }
 }

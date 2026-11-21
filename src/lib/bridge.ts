@@ -327,7 +327,7 @@ export class Bridge {
     state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You' });
   }
   close() {
-    resetTouch(); this.endTransfers(); useTransfers.setState({queue:[]});
+    resetTouch(); this.endTransfers(); useTransfers.setState(s=>({queue:s.queue.filter(row=>row.download)}));
     this.disposed = true; clearTimeout(this.timeout); this.socket?.close(); this.peer?.close(); this.key = undefined;
     state().set({ connected: false, verified: false, peerVerified: false, url: '', sas: '', clips: [], error: '', status: 'Not connected', route: '' });
   }

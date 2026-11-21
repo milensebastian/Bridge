@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import type {Bridge} from '../lib/bridge';
-import {update,useTransfers} from '../store/transfers';
+import {removeDownload,restoreDownloads,saveDownload} from '../transfer/download';
+import {useTransfers} from '../store/transfers';
 import {dropped, type Source} from '../transfer/fileSender';
 
 type Props = {bridge?: Bridge; ready: boolean; report: (message: string) => void};
@@ -38,14 +39,8 @@ export function FileTools({bridge,ready,report}: Props) {
 export function TransferQueue({bridge,report}: Omit<Props,'ready'>) {
   const queue = useTransfers(s=>s.queue);
   useEffect(() => {
-    const saved = (event: MessageEvent) => {
-      if (event.data?.type !== 'bridge-download-saved') return;
-      const row = useTransfers.getState().queue.find(r => r.download === event.data.url);
-      if (row) update(row.id,{download:undefined});
-    };
-    navigator.serviceWorker?.addEventListener('message',saved);
-    return () => navigator.serviceWorker?.removeEventListener('message',saved);
-  },[]);
+    void restoreDownloads().catch(e=>report(String(e)));
+  },[report]);
   if (!queue.length) return null;
   return <section className="transfer-queue" aria-label="Transfers queue"><h3>Transfers</h3>{queue.map(row=>{
     const active = row.status === 'Active' || row.status === 'Paused';
@@ -57,7 +52,10 @@ export function TransferQueue({bridge,report}: Omit<Props,'ready'>) {
         <div className="file-actions"><button onClick={()=>void bridge?.pauseTransfer(row.id,row.status !== 'Paused').catch(e=>report(String(e)))}>{row.status === 'Paused' ? 'Resume' : 'Pause'}</button>
           <button onClick={()=>void bridge?.cancelTransfer(row.id).catch(e=>report(String(e)))}>Cancel</button></div></>}
       {row.detail && <p role="alert">{row.detail}</p>}
-      {row.download && <a href={row.download} download>Save if the download didn’t start</a>}
+      {row.download && <><p>Available here for 24 hours. Save a copy to keep it.</p><div className="file-actions"><button className="primary" onClick={()=>void saveDownload(row.download!).catch(e=>{
+        if(e?.name!=='AbortError')report('Could not save the file: '+String(e));
+      })}>Save {row.download.name.endsWith('.zip')?'ZIP':'file'}</button>
+        <button onClick={()=>void removeDownload(row.id,row.download!).catch(e=>report(String(e)))}>Remove local copy</button></div></>}
     </article>;
   })}</section>;
 }

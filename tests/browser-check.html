@@ -21,9 +21,11 @@ async function test(){
   await wait(()=>peer.state().peerVerified && useSession.getState().peerVerified);
   await client.sendText('clipboard check'); await wait(()=>peer.state().clips.some(c=>c.text==='clipboard check'));
   result.textContent='Paired. Testing encrypted folder data and ZIP downloadâ€¦';
-  // Consume the actual download response, without writing a test archive to the user's Downloads.
+  const native=new URLSearchParams(location.search).has('native');
+  // Native mode also exercises Chromium's download manager in an isolated browser profile.
+  const anchorClick=guest.contentWindow.HTMLAnchorElement.prototype.click;
   let download;
-  guest.contentWindow.HTMLAnchorElement.prototype.click=function(){ download=fetch(this.href).then(r=>r.arrayBuffer()); };
+  guest.contentWindow.HTMLAnchorElement.prototype.click=function(){ download=fetch(this.href).then(r=>r.arrayBuffer()); if(native)anchorClick.call(this); };
   const data=new Uint8Array(3*1024*1024+37);
   for(let i=0;i<data.length;i++)data[i]=i%251;
   await client.sendFiles([{file:new File([data],'sample.bin'),path:'Folder/nested/sample.bin'},
@@ -41,7 +43,17 @@ async function test(){
   check(check(0,'Folder/nested/sample.bin',data),'Folder/empty.txt',[]);
   if(h.getUint32(archive.length-22,true)!==0x06054b50)throw Error('Missing ZIP directory');
   result.textContent='Passed: paired browsers exchanged clipboard text and a 3 MiB nested folder. ZIP paths, payload and empty file verified.';
-  client.close(); peer.client.close();
+  if(native) {
+    const name='Module 4.1 (2).pdf';
+    const sample=new File(['%PDF-1.4\nBridge download test\n%%EOF'],name,{type:'application/pdf'});
+    await peer.client.sendFiles([{file:sample,path:name}]);
+    const row=useTransfers.getState().queue.at(-1);
+    if(!row.download || row.download.name!==name)throw Error('Original filename lost');
+    client.close();peer.client.close();
+    const retry=document.createElement('a');retry.textContent='Retry received PDF'; retry.href=row.download.url;retry.download=row.download.name;
+    document.body.append(retry);
+    result.textContent='Native downloads ready';
+  } else {client.close(); peer.client.close();}
 }
-if(!location.search)test().catch(e=>result.textContent=String(e));
+if(!new URLSearchParams(location.search).has('guest'))test().catch(e=>result.textContent=String(e));
 </script>
