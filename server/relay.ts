@@ -29,6 +29,9 @@ export function createRelay(server: Server, allowedOrigins: string[] = []) {
           const secret = process.env.TURN_SHARED_SECRET;
           const urls = process.env.TURN_URLS?.split(',').map(url => url.trim()).filter(Boolean);
           let turnServer;
+          if (process.env.TURN_CLIENT_CONFIG) {
+            turnServer = JSON.parse(process.env.TURN_CLIENT_CONFIG);
+          }
           if (secret && urls?.length) {
             const username = `${Math.floor(Date.now() / 1000) + 3600}:${randomUUID()}`;
             const credential = createHmac('sha1', secret).update(username).digest('base64');
