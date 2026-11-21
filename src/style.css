@@ -19,3 +19,27 @@
 .top-actions .coffee-link{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;color:var(--accent);font-size:.8125rem;white-space:nowrap}
 .coffee-link:hover,.coffee-link:focus-visible{text-decoration:underline;text-underline-offset:3px}
 @media(max-width:600px){.top-actions .coffee-link{min-width:36px}.coffee-link span{display:none}}
+.touch-workspace[hidden]{display:none}
+.touch-workspace small{display:block;margin-top:12px;color:var(--muted);line-height:1.55}
+.present-stage{padding:14px;background:var(--subtle);border-radius:8px}
+.present-stage strong{display:block;overflow-wrap:anywhere;margin-bottom:10px}
+.present-stage.expanded{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;border-radius:0;justify-content:center}
+.slide-area{display:grid;place-items:center;min-height:100px}
+.slide-sheet{position:relative;line-height:0;max-width:100%}
+.slide-sheet canvas{display:block;max-width:100%;max-height:58vh;width:auto;height:auto}
+.expanded .slide-sheet canvas{max-height:calc(100dvh - 125px)}
+.slide-sheet.placing{cursor:crosshair;outline:2px solid var(--accent)}
+.slide-sheet img{position:absolute;touch-action:none;cursor:grab}.slide-sheet img:active{cursor:grabbing}.slide-sheet.placing img{pointer-events:none}
+.slide-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px;font-size:.875rem}
+.touch-workspace button{min-height:44px}
+.remote-swipe{padding:30px 10px;text-align:center;color:var(--muted);touch-action:pan-y}
+.sign-section{border-top:1px solid var(--line);margin-top:24px;padding-top:20px}
+.sign-section h3,.sign-section p{margin-bottom:10px}
+.sign-section>div{margin-top:12px}
+.signature-pad,.signature-preview{aspect-ratio:3/1;max-width:460px;background:var(--surface);border:1px solid var(--line);border-radius:6px;color:var(--ink)}
+.signature-pad{touch-action:none;cursor:crosshair}
+.signature-pad svg,.signature-preview svg{display:block;width:100%;height:100%;pointer-events:none}
+.laser-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:#e54343;box-shadow:0 0 0 3px #fff9;transform:translate(-50%,-50%);pointer-events:none}
+.laser-pad{padding:42px 12px;text-align:center;touch-action:none;border:1px dashed var(--line);border-radius:6px}
+.stamp-size{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:.875rem}
+.sign-section>button{margin:0 6px 6px 0}

@@ -1,0 +1,61 @@
+<!doctype html><meta charset="utf-8"><title>Bridge presenter integration test</title>
+<output>Checking slide formats…</output>
+<script type="module">
+import {PDFDocument,degrees} from 'pdf-lib';
+import {Bridge} from '/src/lib/bridge.ts';
+import {useSession} from '/src/store/session.ts';
+import {useTouch} from '/src/touch/session.ts';
+import {openDeck,signatureImage,signedPdf} from '/src/touch/document.ts';
+const client=new Bridge();
+window.device={client,state:useSession.getState,touch:useTouch.getState};
+const result=document.querySelector('output');
+async function wait(get){
+  const end=Date.now()+45000;
+  while(Date.now()<end){const value=get();if(value)return value;await new Promise(r=>setTimeout(r,50));}
+  throw Error('Timeout during '+result.textContent);
+}
+async function test(){
+  const img=document.createElement('canvas');img.width=160;img.height=90;
+  const pictures=[];
+  for(const [ext,mime] of [['PNG','image/png'],['jpg','image/jpeg'],['jpeg','image/jpeg'],['jfif','image/jpeg'],['webp','image/webp']]){
+    const blob=await new Promise(r=>img.toBlob(r,mime));
+    pictures.push(new File([blob],'slide.'+ext,{type:mime}));
+  }
+  const images=await openDeck(pictures);
+  if(images.doc.numPages!==5)throw Error('Image import failed');
+  await images.doc.destroy();
+  const pdf=await PDFDocument.create();pdf.addPage([160,90]);pdf.addPage([160,90]).setRotation(degrees(90));
+  const deck=await openDeck([new File([await pdf.save()],'slides.PDF')]);
+  result.textContent='Pairing and changing slides…';
+  const guest=document.createElement('iframe');guest.src='?guest';document.body.append(guest);
+  const peer=await wait(()=>guest.contentWindow.device);
+  await client.start();await peer.client.start(await wait(()=>useSession.getState().url));
+  await wait(()=>peer.state().connected && useSession.getState().connected);
+  await client.verify();await peer.client.verify();await wait(()=>peer.state().peerVerified && useSession.getState().peerVerified);
+  const slides={id:crypto.randomUUID(),title:deck.title,page:1,count:2};
+  useTouch.setState({local:slides});
+  await client.sendTouch({type:'touch',action:'slides',slides});
+  await wait(()=>peer.touch().remote?.page===1);
+  await peer.client.sendTouch({type:'touch',action:'step',id:slides.id,delta:1});
+  await wait(()=>useTouch.getState().local.page===2);
+  result.textContent='Checking signature previews and signed PDF…';
+  await client.sendTouch({type:'touch',action:'request-signature'});await wait(()=>peer.touch().request===1);
+  const strokes=[[[0,500],[500,500],[1000,500]]];
+  await peer.client.sendTouch({type:'touch',action:'ink',strokes,confirmed:false});
+  await wait(()=>useTouch.getState().ink.length===1);
+  await peer.client.sendTouch({type:'touch',action:'ink',strokes,confirmed:true});
+  await wait(()=>useTouch.getState().confirmed);
+  const image=signatureImage(useTouch.getState().ink);
+  const blob=await signedPdf(deck,[{page:2,left:.2,top:.3,width:.6,height:.15,image}]);
+  const saved=await openDeck([new File([blob],'signed.pdf')]);
+  const page=await saved.doc.getPage(2),view=page.getViewport({scale:4});
+  const canvas=document.createElement('canvas');canvas.width=view.width;canvas.height=view.height;
+  const ctx=canvas.getContext('2d');
+  await page.render({canvasContext:ctx,viewport:view}).promise;
+  const pixel=ctx.getImageData(Math.floor(view.width*.5),Math.floor(view.height*.375),1,1).data;
+  if(pixel[0]>190 || saved.doc.numPages!==2)throw Error('Signed page does not match the preview');
+  await saved.doc.destroy(); await deck.doc.destroy();client.close();peer.client.close();guest.remove();
+  result.textContent='Passed. All six extensions opened. Paired slide navigation, signature request, live preview and signed PDF placement on a rotated page verified.';
+}
+if(!location.search)test().catch(e=>result.textContent=String(e));
+</script>

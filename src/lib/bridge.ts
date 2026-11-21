@@ -4,6 +4,7 @@ import { FileSender, type Source } from '../transfer/fileSender';
 import { FileReceiver } from '../transfer/fileReceiver';
 import { chunkSize, threshold, windowBytes, type Control, type Manifest, type Wire } from '../transfer/protocol';
 import { update, useTransfers } from '../store/transfers';
+import {receiveTouch, resetTouch, type TouchMessage} from '../touch/session';
 type Signal = { type: string; key?: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; message?: string; turnServer?: RTCIceServer };
 const state = useSession.getState;
 export class Bridge {
@@ -16,6 +17,30 @@ export class Bridge {
   private disposed = false;
   private tx = 0;
   private rx = -1;
+  private realtime?:RTCDataChannel;
+  private touchSeq=0;
+  private lastInk=-1;
+  private lastLaser=-1;
+  private bindRealtime(channel:RTCDataChannel) {
+    this.realtime=channel;
+    channel.onmessage=event=>{
+      if (!this.key || !state().verified || !state().peerVerified || typeof event.data!=='string' || event.data.length>50000) return;
+      void decrypt(this.key,event.data,this.room+':motion:'+ (this.role==='host'?'guest':'host')).then(raw=>{
+        if(this.disposed || !state().verified || !state().peerVerified)return;
+        const msg=raw as TouchMessage & {order:number};
+        if(msg.type==='touch' && (msg.action==='laser' || (msg.action==='ink' && !msg.confirmed))) this.acceptTouch(msg);
+      }).catch(this.fail);
+    };
+  }
+  private acceptTouch(msg:TouchMessage & {order?:number}) {
+    if(msg.action==='ink' || msg.action==='laser') {
+      const field=msg.action==='ink'?'lastInk':'lastLaser';
+      const order=msg.order;
+      if(typeof order!=='number' || !Number.isSafeInteger(order) || order<=this[field])return;
+      this[field]=order;
+    }
+    receiveTouch(msg);
+  }
   private outgoing = Promise.resolve();
   private incoming = Promise.resolve();
   private timeout?: ReturnType<typeof setTimeout>;
@@ -65,7 +90,7 @@ export class Bridge {
             } else {
               sendSignal({ type: 'hello', key: ownKey });
               this.bind(peer.createDataChannel('reliable-stream', { ordered: true }));
-              peer.createDataChannel('realtime-input', { ordered: false, maxRetransmits: 0 });
+              this.bindRealtime(peer.createDataChannel('realtime-input', { ordered: false, maxRetransmits: 0 }));
               await peer.setLocalDescription(await peer.createOffer());
               sendSignal({ type: 'offer', sdp: peer.localDescription! });
             }
@@ -87,7 +112,7 @@ export class Bridge {
         }).catch(this.fail);
       };
       peer.onicecandidate = event => { if (event.candidate) sendSignal({ type: 'ice', candidate: event.candidate.toJSON() }); };
-      peer.ondatachannel = event => { if (event.channel.label === 'reliable-stream') this.bind(event.channel); };
+      peer.ondatachannel = event => { if (event.channel.label === 'reliable-stream') this.bind(event.channel); else if(event.channel.label==='realtime-input') this.bindRealtime(event.channel); };
       peer.onconnectionstatechange = () => {
         if (this.disposed) return;
         if (peer.connectionState === 'connected') {
@@ -234,6 +259,7 @@ export class Bridge {
     if (channel.readyState === 'open') opened();
     channel.onclose = () => {
       this.endTransfers();
+      if (!this.disposed) resetTouch();
       if (!this.disposed) state().set({connected:false,verified:false,peerVerified:false,status:'Disconnected'});
     };
     channel.onmessage = event => {
@@ -252,9 +278,14 @@ export class Bridge {
           return;
         }
         if (!this.key || typeof event.data !== 'string' || event.data.length > 100000) throw Error('Invalid encrypted message');
-        const message = await decrypt(this.key, event.data, `${this.room}:${this.role === 'host' ? 'guest' : 'host'}`) as ({ seq: number } & (Control | { type: 'verify' | 'clipboard'; text?: string }));
+        const message = await decrypt(this.key, event.data, `${this.room}:${this.role === 'host' ? 'guest' : 'host'}`) as ({ seq: number } & (TouchMessage | Control | { type: 'verify' | 'clipboard'; text?: string }));
         if (!Number.isSafeInteger(message.seq) || message.seq <= this.rx) throw Error('Replayed message rejected');
         this.rx = message.seq;
+        if (message.type === 'touch') {
+          if (!state().verified || !state().peerVerified || this.disposed) throw Error('Verify both devices before using Touch & sign.');
+          this.acceptTouch(message);
+          return;
+        }
         if ('transferId' in message) {
           if (!state().verified || !state().peerVerified) throw Error('Unverified transfer.');
           try { await this.control(message); }
@@ -269,7 +300,7 @@ export class Bridge {
       }).catch(this.fail).finally(()=>{ this.pendingBytes -= size; });
     };
   }
-  private send(message: Control | { type: 'clipboard' | 'verify'; text?: string }) {
+  private send(message: TouchMessage | Control | { type: 'clipboard' | 'verify'; text?: string }) {
     const operation = this.outgoing.then(async () => {
       if (!this.key || this.channel?.readyState !== 'open') throw Error('The other device is not ready yet.');
       const limit = Math.min(99000,this.peer?.sctp?.maxMessageSize || 65536);
@@ -277,6 +308,16 @@ export class Bridge {
       await this.write(await encrypt(this.key, { ...message, seq: this.tx++ }, `${this.room}:${this.role}`));
     });
     this.outgoing = operation.catch(() => {}); return operation;
+  }
+  async sendTouch(message:TouchMessage) {
+    if (!state().connected || !state().verified || !state().peerVerified) throw Error('Verify both devices first.');
+    const packet={...message,order:this.touchSeq++};
+    const realtime=this.realtime;
+    if (this.key && realtime?.readyState==='open' && ((message.action==='laser' && message.point) || (message.action==='ink' && !message.confirmed && message.strokes.length))) {
+      if(realtime.bufferedAmount>32768)return;
+      const payload=await encrypt(this.key,packet,this.room+':motion:'+this.role);
+      if(payload.length<=(this.peer?.sctp?.maxMessageSize || 65536) && realtime.readyState==='open') realtime.send(payload);
+    } else await this.send(packet);
   }
   async verify() { await this.send({ type: 'verify' }); state().set({ verified: true }); }
   async sendText(text: string) {
@@ -286,7 +327,7 @@ export class Bridge {
     state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You' });
   }
   close() {
-    this.endTransfers(); useTransfers.setState({queue:[]});
+    resetTouch(); this.endTransfers(); useTransfers.setState({queue:[]});
     this.disposed = true; clearTimeout(this.timeout); this.socket?.close(); this.peer?.close(); this.key = undefined;
     state().set({ connected: false, verified: false, peerVerified: false, url: '', sas: '', clips: [], error: '', status: 'Not connected', route: '' });
   }
