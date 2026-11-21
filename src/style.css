@@ -43,3 +43,4 @@
 .laser-pad{padding:42px 12px;text-align:center;touch-action:none;border:1px dashed var(--line);border-radius:6px}
 .stamp-size{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:.875rem}
 .sign-section>button{margin:0 6px 6px 0}
+footer nav{display:flex;align-items:center;gap:18px}footer nav .text-button{font:inherit;color:inherit;padding:0}footer nav a:hover,footer nav .text-button:hover{text-decoration:underline;text-underline-offset:3px}

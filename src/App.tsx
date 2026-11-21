@@ -42,7 +42,7 @@ export default function App() {
     <header className="topbar"><a className="brand" href="/" aria-label="Bridge home"><span className="brand-symbol"><span /><span /></span>bridge<span className="beta">BETA</span></a><div className="top-actions"><span className="local-label">A little closer, wirelessly.</span><button className="icon-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onClick={() => setDark(!dark)}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button><span className="divider"/><button className="mode-button" onClick={() => setMode(mode === 'desktop' ? 'mobile' : 'desktop')}>{mode === 'desktop' ? <Monitor size={16}/> : <Smartphone size={16}/>}<span>{mode === 'desktop' ? 'Desktop' : 'Companion'}</span></button>
       <a className="coffee-link" href="https://buymeacoffee.com/MilenSebastian" aria-label="Buy me a coffee" title="Buy me a coffee" target="_blank" rel="noopener noreferrer"><Coffee size={15} aria-hidden="true"/><span>Buy me a coffee</span></a>
     </div></header>
-    <main><div className="page-heading"><div><div className="eyebrow">YOUR PERSONAL WORKSPACE</div><h1>Your devices. Together.</h1><p>Move something from here to there. Keep it between you.</p></div><span className={`connection ${session.connected ? 'online' : ''}`}><i/>{session.connected ? 'Device connected' : 'No device connected'}</span></div>
+    <main><div className="page-heading"><div><div className="eyebrow">YOUR PERSONAL WORKSPACE</div><h1>Your devices. Together.</h1><p>Send files, text and links between your phone and computer.</p></div><span className={`connection ${session.connected ? 'online' : ''}`}><i/>{session.connected ? 'Device connected' : 'No device connected'}</span></div>
       <div className="workspace"><aside>
         <section className="pair-panel"><div className="section-heading"><h2>{session.connected ? 'Your connection' : 'Connect a device'}</h2><Smartphone size={18}/></div>
           {session.connected ? <div className="verification"><div className="device-pair"><Monitor size={31}/><span>······</span><Smartphone size={31}/></div><h3>{ready ? 'You’re connected' : 'One quick check'}</h3><p>Make sure these four symbols match on both screens.</p><div className="sas" aria-label="Verification symbols">{session.sas}</div>{!session.verified ? <button className="primary full" onClick={() => void perform(async () => { await bridge.current?.verify(); })}><Check size={16}/>The symbols match</button> : <p className="verification-note">{session.peerVerified ? 'Confirmed on both devices' : 'Waiting for confirmation on your other device…'}</p>}<button className="text-button" onClick={() => bridge.current?.close()}><Unplug size={15}/>Disconnect</button></div> : <>
@@ -63,7 +63,11 @@ export default function App() {
       <TransferQueue bridge={bridge.current} report={setNotice}/>
       </section></div>
       {session.error && <div className="error" role="alert">{session.error}<button className="icon-button" aria-label="Dismiss error" onClick={() => session.set({ error: '' })}><X size={16}/></button></div>}
-      <footer><span>Less friction. More flow.</span><div><span>{session.connected ? 'AES-256-GCM' : 'PRIVATE BY DESIGN'}</span><span>·</span><span>{session.route || 'BROWSER TO BROWSER'}</span></div></footer>
+      <footer><nav aria-label="Bridge resources"><a href="/guide/" target="_blank" rel="noopener noreferrer">How to send files</a><button className="text-button" onClick={()=>void perform(async()=>{
+        const url='https://bridge-eight-beryl.vercel.app/';
+        if(navigator.share){try{await navigator.share({title:'Bridge',text:'Send files between your phone and laptop.',url});return;}catch(error){if(error instanceof Error && error.name==='AbortError')return;}}
+        await navigator.clipboard.writeText(url);setNotice('Public Bridge link copied');
+      })}>Share Bridge</button></nav><div><span>{session.connected ? 'AES-256-GCM' : 'PRIVATE BY DESIGN'}</span><span>·</span><span>{session.route || 'BROWSER TO BROWSER'}</span></div></footer>
     </main>{notice && <div className="toast" role="status">{notice}</div>}{scanner && <Scanner onScan={scanned} onClose={() => setScanner(false)}/>}
   </div>;
 }

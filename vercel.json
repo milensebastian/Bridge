@@ -1,5 +1,19 @@
 {
   "rewrites": [
-    { "source": "/pair", "destination": "/" }
+    {
+      "source": "/pair",
+      "destination": "/"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/pair",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    }
   ]
 }
