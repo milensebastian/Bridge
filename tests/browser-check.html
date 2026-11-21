@@ -1,0 +1,47 @@
+<!doctype html><meta charset="utf-8"><title>Bridge file integration test</title><output>Pairing two test devicesâ€¦</output>
+<script type="module">
+import {Bridge} from '/src/lib/bridge.ts';
+import {useSession} from '/src/store/session.ts';
+import {useTransfers} from '/src/store/transfers.ts';
+const client = new Bridge();
+const result = document.querySelector('output');
+async function wait(get) {
+  const end=Date.now()+65000;
+  while(Date.now()<end){const value=get(); if(value)return value; await new Promise(r=>setTimeout(r,50));}
+  throw Error('Timed out: '+useSession.getState().status+' '+useSession.getState().error);
+}
+window.testDevice={client,state:useSession.getState};
+async function test(){
+  const guest=document.createElement('iframe'); guest.src='?guest'; document.body.append(guest);
+  const peer=await wait(()=>guest.contentWindow.testDevice);
+  await client.start();
+  await peer.client.start(await wait(()=>useSession.getState().url));
+  await wait(()=>peer.state().connected && useSession.getState().connected);
+  await client.verify(); await peer.client.verify();
+  await wait(()=>peer.state().peerVerified && useSession.getState().peerVerified);
+  await client.sendText('clipboard check'); await wait(()=>peer.state().clips.some(c=>c.text==='clipboard check'));
+  result.textContent='Paired. Testing encrypted folder data and ZIP downloadâ€¦';
+  // Consume the actual download response, without writing a test archive to the user's Downloads.
+  let download;
+  guest.contentWindow.HTMLAnchorElement.prototype.click=function(){ download=fetch(this.href).then(r=>r.arrayBuffer()); };
+  const data=new Uint8Array(3*1024*1024+37);
+  for(let i=0;i<data.length;i++)data[i]=i%251;
+  await client.sendFiles([{file:new File([data],'sample.bin'),path:'Folder/nested/sample.bin'},
+    {file:new File([],'empty.txt'),path:'Folder/empty.txt'}]);
+  const row=useTransfers.getState().queue.at(-1);
+  if(row.status!=='Complete')throw Error(row.detail||row.status);
+  const archive=new Uint8Array(await download), h=new DataView(archive.buffer);
+  function check(pos,path,bytes){
+    if(h.getUint32(pos,true)!==0x04034b50) throw Error('Invalid ZIP header');
+    const nameLen=h.getUint16(pos+26,true), start=pos+30+nameLen+h.getUint16(pos+28,true);
+    if(new TextDecoder().decode(archive.subarray(pos+30,pos+30+nameLen))!==path)throw Error('Path mismatch');
+    if(!bytes.every((b,i)=>archive[start+i]===b))throw Error('Contents differ');
+    return start+bytes.length;
+  }
+  check(check(0,'Folder/nested/sample.bin',data),'Folder/empty.txt',[]);
+  if(h.getUint32(archive.length-22,true)!==0x06054b50)throw Error('Missing ZIP directory');
+  result.textContent='Passed: paired browsers exchanged clipboard text and a 3 MiB nested folder. ZIP paths, payload and empty file verified.';
+  client.close(); peer.client.close();
+}
+if(!location.search)test().catch(e=>result.textContent=String(e));
+</script>

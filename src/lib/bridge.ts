@@ -1,5 +1,9 @@
 import { createIdentity, publicKey, deriveSession, encrypt, decrypt } from './crypto';
 import { useSession } from '../store/session';
+import { FileSender, type Source } from '../transfer/fileSender';
+import { FileReceiver } from '../transfer/fileReceiver';
+import { chunkSize, threshold, windowBytes, type Control, type Manifest, type Wire } from '../transfer/protocol';
+import { update, useTransfers } from '../store/transfers';
 type Signal = { type: string; key?: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; message?: string; turnServer?: RTCIceServer };
 const state = useSession.getState;
 export class Bridge {
@@ -87,8 +91,6 @@ export class Bridge {
       peer.onconnectionstatechange = () => {
         if (this.disposed) return;
         if (peer.connectionState === 'connected') {
-          state().set({ connected: true, status: 'Verify your devices', url: '' });
-          clearTimeout(this.timeout); socket.close();
           void peer.getStats().then(stats => {
             stats.forEach(report => { if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
               const local = stats.get(report.localCandidateId); const remote = stats.get(report.remoteCandidateId);
@@ -103,27 +105,176 @@ export class Bridge {
       this.timeout = setTimeout(() => { if (!state().connected) { this.fail('Pairing expired. Start a new session.'); this.socket?.close(); } }, 300000);
     } catch (error) { this.fail(error); }
   }
+  private sender?: FileSender;
+  private receiver?: FileReceiver;
+  private pendingBytes = 0;
+  private partialManifest?: Manifest;
+
+  private async announce(m: Manifest) {
+    const limit = Math.min(99000,this.peer?.sctp?.maxMessageSize || 65536);
+    let page: Manifest = {...m,files:[]};
+    let size = 256;
+    for (const file of m.files) {
+      const length = new TextEncoder().encode(JSON.stringify(file)).length + 1;
+      if (page.files.length && (size + length) * 4/3 + 160 > limit) {
+        await this.send({...page,more:true});
+        page = {...m,files:[]};
+        size = 256;
+      }
+      page.files.push(file);
+      size += length;
+    }
+    await this.send(page);
+  }
+  private get wire(): Wire {
+    return {control: value => value.type === 'transfer-manifest' ? this.announce(value) : this.send(value), binary: value => this.write(value)};
+  }
+  private async write(payload: string | ArrayBuffer) {
+    const channel = this.channel;
+    if (!channel || channel.readyState !== 'open') throw Error('Connection closed.');
+    if (channel.bufferedAmount > threshold) await new Promise<void>((resolve,reject) => {
+      const cleanup = () => {
+        channel.removeEventListener('bufferedamountlow', low);
+        channel.removeEventListener('close', closed);
+      };
+      const low = () => { cleanup(); resolve(); };
+      const closed = () => { cleanup(); reject(Error('Connection closed.')); };
+      channel.addEventListener('bufferedamountlow',low);
+      channel.addEventListener('close',closed);
+    });
+    if (typeof payload === 'string') channel.send(payload);
+    else channel.send(payload);
+  }
+  async sendFiles(sources: Source[]) {
+    if (!this.key || !state().verified || !state().peerVerified) throw Error('Confirm the symbols on both devices first.');
+    if (this.sender) throw Error('Finish the current outgoing transfer first.');
+    const max = this.peer?.sctp?.maxMessageSize || 65536;
+    if (max < 16429) throw Error('This connection does not support file-sized messages.');
+    const sender = new FileSender(sources,this.wire,this.key,Math.min(chunkSize,max - 45));
+    this.sender = sender;
+    const id = sender.manifest.transferId;
+    try { await sender.run(); }
+    catch (error) {
+      const row = useTransfers.getState().queue.find(row => row.id === id);
+      if (row?.status === 'Active' || row?.status === 'Paused') {
+        update(id,{status:'Failed',detail:String(error)});
+        await this.send({type:'transfer-cancel',transferId:id,reason:String(error)}).catch(()=>{});
+      }
+    } finally { if (this.sender === sender) this.sender = undefined; }
+  }
+  private async stopTransfer(id: string, reason?: string) {
+    if (this.partialManifest?.transferId === id) this.partialManifest = undefined;
+    update(id,{status:reason ? 'Failed' : 'Cancelled',detail:reason});
+    if (this.sender?.manifest.transferId === id) this.sender.cancel();
+    if (this.receiver?.manifest.transferId === id) {
+      const receiver = this.receiver;
+      this.receiver = undefined;
+      await receiver.discard();
+    }
+  }
+  async cancelTransfer(id: string) {
+    update(id,{status:'Cancelled'});
+    if (this.sender?.manifest.transferId === id) this.sender.cancel();
+    this.incoming = this.incoming.then(()=>this.stopTransfer(id)).catch(this.fail);
+    await this.send({type:'transfer-cancel',transferId:id});
+  }
+  async pauseTransfer(id: string, paused: boolean) {
+    if (this.sender?.manifest.transferId === id) this.sender.pause(paused);
+    update(id,{status:paused ? 'Paused' : 'Active'});
+    await this.send({type:'transfer-pause',transferId:id,paused});
+  }
+  private endTransfers() {
+    this.sender?.cancel();
+    const receiver = this.receiver;
+    this.incoming = this.incoming.then(async () => {
+      if (receiver && this.receiver === receiver) await this.stopTransfer(receiver.manifest.transferId,'Connection closed.');
+    }).catch(this.fail);
+  }
+  private async control(message: Control) {
+    const id = message.transferId;
+    if (message.type === 'transfer-manifest') {
+      if (this.receiver || this.sender?.manifest.transferId === id) {
+        await this.send({type:'transfer-cancel',transferId:id,reason:'Receiver is busy.'}); return;
+      }
+      if (this.partialManifest) {
+        if (this.partialManifest.transferId !== id || this.partialManifest.totalBytes !== message.totalBytes) throw Error('Unexpected manifest page.');
+        this.partialManifest.files.push(...message.files);
+      } else this.partialManifest = {...message,files:[...message.files]};
+      if (message.more) return;
+      const manifest = this.partialManifest;
+      this.partialManifest = undefined;
+      this.receiver = new FileReceiver(manifest,this.wire,this.key!);
+      await this.receiver.start();
+    } else if (message.type === 'transfer-cancel') {
+      if (id === this.receiver?.manifest.transferId || id === this.sender?.manifest.transferId || id === this.partialManifest?.transferId) await this.stopTransfer(id,message.reason);
+    } else if (message.type === 'transfer-ack' && this.sender?.manifest.transferId === id) {
+      this.sender.acknowledge(message.bytes,message.complete);
+    } else if (message.type === 'file-complete' && this.receiver?.manifest.transferId === id) {
+      if (await this.receiver.finishFile(message.fileId)) this.receiver = undefined;
+    } else if (message.type === 'transfer-pause' && (id === this.receiver?.manifest.transferId || id === this.sender?.manifest.transferId)) {
+      if (id === this.sender?.manifest.transferId) this.sender.pause(message.paused);
+      update(id,{status:message.paused ? 'Paused' : 'Active'});
+    }
+  }
+  private async rejectTransfer(id: string, error: unknown) {
+    const reason = error instanceof Error ? error.message : 'Transfer failed.';
+    await this.stopTransfer(id,reason);
+    await this.send({type:'transfer-cancel',transferId:id,reason});
+  }
   private bind(channel: RTCDataChannel) {
-    this.channel = channel; channel.bufferedAmountLowThreshold = 256 * 1024;
+    this.channel = channel; channel.bufferedAmountLowThreshold = threshold;
+    channel.binaryType = 'arraybuffer';
+    const opened = () => {
+      if (this.disposed) return;
+      state().set({connected:true,status:'Verify your devices',url:''});
+      clearTimeout(this.timeout);
+      this.socket?.close();
+    };
+    channel.onopen = opened;
+    if (channel.readyState === 'open') opened();
+    channel.onclose = () => {
+      this.endTransfers();
+      if (!this.disposed) state().set({connected:false,verified:false,peerVerified:false,status:'Disconnected'});
+    };
     channel.onmessage = event => {
+      const size = event.data instanceof ArrayBuffer ? event.data.byteLength : 0;
+      this.pendingBytes += size;
+      if (this.pendingBytes > windowBytes * 2) { channel.close(); return; }
       this.incoming = this.incoming.then(async () => {
+        if (this.disposed) return;
+        if (event.data instanceof ArrayBuffer) {
+          if (!state().verified || !state().peerVerified) throw Error('Unverified transfer.');
+          const receiver = this.receiver;
+          if (receiver) {
+            try { await receiver.chunk(event.data); }
+            catch (error) { await this.rejectTransfer(receiver.manifest.transferId,error); }
+          }
+          return;
+        }
         if (!this.key || typeof event.data !== 'string' || event.data.length > 100000) throw Error('Invalid encrypted message');
-        const message = await decrypt(this.key, event.data, `${this.room}:${this.role === 'host' ? 'guest' : 'host'}`) as { seq: number; type: string; text?: string };
+        const message = await decrypt(this.key, event.data, `${this.room}:${this.role === 'host' ? 'guest' : 'host'}`) as ({ seq: number } & (Control | { type: 'verify' | 'clipboard'; text?: string }));
         if (!Number.isSafeInteger(message.seq) || message.seq <= this.rx) throw Error('Replayed message rejected');
         this.rx = message.seq;
+        if ('transferId' in message) {
+          if (!state().verified || !state().peerVerified) throw Error('Unverified transfer.');
+          try { await this.control(message); }
+          catch (error) { await this.rejectTransfer(message.transferId,error); }
+          return;
+        }
         if (message.type === 'verify') state().set({ peerVerified: true });
         if (message.type === 'clipboard') {
           if (!state().verified || !state().peerVerified || typeof message.text !== 'string' || message.text.length > 12000) throw Error('Unverified clipboard message rejected');
           state().add({ id: crypto.randomUUID(), text: message.text, at: Date.now(), source: 'Other device' });
         }
-      }).catch(this.fail);
+      }).catch(this.fail).finally(()=>{ this.pendingBytes -= size; });
     };
   }
-  private send(message: { type: string; text?: string }) {
+  private send(message: Control | { type: 'clipboard' | 'verify'; text?: string }) {
     const operation = this.outgoing.then(async () => {
       if (!this.key || this.channel?.readyState !== 'open') throw Error('The other device is not ready yet.');
-      if (this.channel.bufferedAmount > 256 * 1024) throw Error('Connection is busy. Try again in a moment.');
-      this.channel.send(await encrypt(this.key, { ...message, seq: this.tx++ }, `${this.room}:${this.role}`));
+      const limit = Math.min(99000,this.peer?.sctp?.maxMessageSize || 65536);
+      if (new TextEncoder().encode(JSON.stringify(message)).length * 4/3 + 160 > limit) throw Error('Too many file names for one transfer. Select a smaller group.');
+      await this.write(await encrypt(this.key, { ...message, seq: this.tx++ }, `${this.room}:${this.role}`));
     });
     this.outgoing = operation.catch(() => {}); return operation;
   }
@@ -135,6 +286,7 @@ export class Bridge {
     state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You' });
   }
   close() {
+    this.endTransfers(); useTransfers.setState({queue:[]});
     this.disposed = true; clearTimeout(this.timeout); this.socket?.close(); this.peer?.close(); this.key = undefined;
     state().set({ connected: false, verified: false, peerVerified: false, url: '', sas: '', clips: [], error: '', status: 'Not connected', route: '' });
   }

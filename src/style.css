@@ -6,3 +6,13 @@
 @media(max-width:800px){.topbar{height:66px;padding:0 22px}.local-label{display:none}.top-actions{gap:9px}main{padding:32px 20px 15px}.page-heading{display:block;margin-bottom:25px}h1{font-size:1.85rem}.page-heading p{font-size:.875rem}.connection{margin-top:20px}.workspace{grid-template-columns:1fr}.pair-panel{max-width:none}.pair-illustration{height:160px}.privacy-note{padding:18px 5px}.tabs{justify-content:space-between;gap:8px;padding:0 16px}.tabs button{gap:5px}.tabs button span{font-size:.6875rem}.content-panel{min-height:570px}.clipboard-workspace{padding:24px 18px 0}.composer-footer{padding-left:12px}.composer-footer span{font-size:.625rem}.sync-row{margin-bottom:22px}.workspace-note{font-size:.625rem;text-align:center}.page-heading .eyebrow{font-size:.625rem}footer{gap:18px;flex-direction:column;margin-top:20px}.upcoming{min-height:480px;padding:25px}.qr-wrap img{width:200px}.pair-description{max-width:290px;margin-left:auto;margin-right:auto}.pair-panel>.full,.pair-panel>.join-form{max-width:320px;margin-left:auto;margin-right:auto}.pair-panel>.or{max-width:320px;margin-left:auto;margin-right:auto}.brand{font-size:1.35rem}.top-actions .mode-button{font-size:.75rem}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 .pair-panel>.text-button{display:flex;margin:9px auto 0}.clip pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.875rem;line-height:1.65}
+.file-drop{padding:32px 18px;text-align:center;border:1px dashed var(--line);border-radius:8px}
+.file-drop.hover{background:var(--subtle);border-color:var(--accent)}
+.file-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.file-drop .file-actions{justify-content:center}
+.file-actions button,.transfer-queue a{min-height:44px}
+.transfer-queue{margin:0 24px 24px;padding-top:18px;border-top:1px solid var(--line)}
+.transfer-queue article{margin-top:14px;padding:16px;border:1px solid var(--line);border-radius:8px;overflow-wrap:anywhere}
+.transfer-queue p,.transfer-queue a{font-size:.85rem}
+.transfer-queue a{display:inline-flex;align-items:center;text-decoration:underline}
+.transfer-queue progress{display:block;width:100%;height:6px;margin:12px 0;accent-color:var(--accent)}
