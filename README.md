@@ -21,7 +21,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Create a connection, copy its pairing link into a second browser window, and confirm the symbols on **both** screens. You can then send text and links, copy received entries, or explicitly read your clipboard. Clipboard access requires browser permission. Optional focus sync is off by default. The desktop/companion toggle changes the layout for testing.
+Open `http://localhost:5173`. Create a connection, copy its pairing link into a second browser window, and confirm the symbols on **both** screens. You can then send text and links, copy received entries, or explicitly read your clipboard. Clipboard access requires browser permission. Optional focus sync is off by default. The layout adapts automatically to the device.
 
 ```sh
 npm run build

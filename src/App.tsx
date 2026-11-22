@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Clipboard, Coffee, Copy, Files, Monitor, Moon, Plus, ScanLine, ShieldCheck, Smartphone, Sun, Touchpad, X } from 'lucide-react';
+import { Camera, Clipboard, Coffee, Copy, Files, Moon, Plus, ScanLine, ShieldCheck, Smartphone, Sun, Touchpad, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Bridge } from './lib/bridge';
 import { useSession } from './store/session';
@@ -25,7 +25,7 @@ export default function App() {
   const signatureRequest=useTouch(s=>s.request);
   useEffect(()=>{if(signatureRequest){setOpenedTouch(true);setTab('Touch & sign');}},[signatureRequest]);
   const [qr, setQr] = useState(''); const [scanner, setScanner] = useState(false);
-  const [mode, setMode] = useState(() => matchMedia('(pointer: coarse)').matches ? 'mobile' : 'desktop');
+  const mobileLayout = Boolean(initialPairUrl.current) || matchMedia('(pointer: coarse)').matches;
   const [dark, setDark] = useState(() => localStorage.getItem('bridge-theme') === 'dark');
   const [notice, setNotice] = useState(''); const [pairLink, setPairLink] = useState(''); const [autoSync, setAutoSync] = useState(false);
   const ready = session.recipient !== undefined;
@@ -54,7 +54,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (initialPairUrl.current) {
-      history.replaceState(null, '', '/pair'); start(initialPairUrl.current); setMode('mobile');
+      history.replaceState(null, '', '/pair'); start(initialPairUrl.current);
     }
     return () => bridge.current?.close();
   }, [start]);
@@ -76,8 +76,8 @@ export default function App() {
     return () => window.removeEventListener('focus', focus);
   }, [autoSync, canAutoSync, individualTarget, sync]);
   const scanned = useCallback((url: string) => { setScanner(false); start(url); }, [start]);
-  return <div className={`app ${mode}`}>
-    <header className="topbar"><a className="brand" href="/" aria-label="Bridge home"><span className="brand-symbol"><span /><span /></span>bridge</a><div className="top-actions"><span className="local-label">A little closer, wirelessly.</span><button className="icon-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onClick={() => setDark(!dark)}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button><span className="divider"/><button className="mode-button" onClick={() => setMode(mode === 'desktop' ? 'mobile' : 'desktop')}>{mode === 'desktop' ? <Monitor size={16}/> : <Smartphone size={16}/>}<span>{mode === 'desktop' ? 'Desktop' : 'Companion'}</span></button>
+  return <div className={mobileLayout ? 'app mobile' : 'app'}>
+    <header className="topbar"><a className="brand" href="/" aria-label="Bridge home"><span className="brand-symbol"><span /><span /></span>bridge</a><div className="top-actions"><span className="local-label">A little closer, wirelessly.</span><button className="icon-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onClick={() => setDark(!dark)}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button><span className="divider"/>
       <a className="coffee-link" href="https://buymeacoffee.com/MilenSebastian" aria-label="Buy me a coffee" title="Buy me a coffee" target="_blank" rel="noopener noreferrer"><Coffee size={15} aria-hidden="true"/><span>Buy me a coffee</span></a>
     </div></header>
     <main><div className="page-heading"><div><div className="eyebrow">YOUR PERSONAL WORKSPACE</div><h1>Your devices. Together.</h1><p>Send files, text and links between your phone and computer.</p></div><span className={`connection ${session.connected ? 'online' : ''}`}><i/>{session.connected ? `${verifiedCount} verified` : 'No device connected'}</span></div>
