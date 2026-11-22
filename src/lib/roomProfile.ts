@@ -8,3 +8,12 @@ export function cleanRoomName(value: string) {
 }
 
 export function userLabel(slot: number) { return `User ${slot}`; }
+
+const memberColors = [
+  '#ed6969', '#4ba3ec', '#38ad76', '#eaaa3c', '#a779e5',
+  '#38c5c6', '#f4885a', '#db6ead', '#8db946', '#6b79dc',
+  '#b77e55', '#4eaca2', '#c96bdb', '#c9ae64', '#7aafed',
+  '#a7cb68', '#f2a0b4', '#a78aa1', '#879397', '#d1d8e3',
+];
+
+export function memberColor(slot: number) { return memberColors[slot - 1]; }

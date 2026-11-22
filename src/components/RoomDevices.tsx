@@ -1,18 +1,11 @@
 import { useState } from 'react';
 import { Check, Link, Pencil, Unplug } from 'lucide-react';
 import type { Bridge } from '../lib/bridge';
-import { ROOM_NAME_LIMIT, ROOM_SIZE, userLabel } from '../lib/roomProfile';
+import { memberColor, ROOM_NAME_LIMIT, ROOM_SIZE, userLabel } from '../lib/roomProfile';
 import { useSession } from '../store/session';
 
-const colors = [
-  '#ed6969', '#4ba3ec', '#38ad76', '#eaaa3c', '#a779e5',
-  '#38c5c6', '#f4885a', '#db6ead', '#8db946', '#6b79dc',
-  '#b77e55', '#4eaca2', '#c96bdb', '#c9ae64', '#7aafed',
-  '#a7cb68', '#f2a0b4', '#a78aa1', '#879397', '#d1d8e3',
-];
-
 function MemberColor({ slot }: { slot: number }) {
-  return <span className="member-color" aria-hidden="true" style={{ backgroundColor: colors[slot - 1] }}/>;
+  return <span className="member-color" aria-hidden="true" style={{ backgroundColor: memberColor(slot) }}/>;
 }
 
 export function RoomDevices({ bridge, qr, report }: { bridge?: Bridge; qr: string; report: (message: string) => void }) {

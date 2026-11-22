@@ -49,12 +49,16 @@ export class Bridge {
     return profile?.name || userLabel(profile?.slot ?? id);
   }
 
+  private memberSlot(id: number) {
+    return this.profiles.get(id)?.slot ?? (id - 1) % ROOM_SIZE + 1;
+  }
+
   private publish() {
     if (this.disposed) return;
     const devices = [...this.members].map(id => {
       const link = this.links.get(id);
       const profile = this.profiles.get(id);
-      return { id, slot: profile?.slot ?? (id - 1) % ROOM_SIZE + 1, name: this.label(id),
+      return { id, slot: this.memberSlot(id), name: this.label(id),
         customName: Boolean(profile?.name), connected: link?.connected ?? false,
         connecting: Boolean(link && !link.connected), verified: link?.confirmed ?? false,
         failed: this.failedLinks.has(id),
@@ -239,7 +243,7 @@ export class Bridge {
         if (link.connected) this.fail('The device disconnected. Use Connect to try again.');
       },
       this.fail,
-      text => state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: this.label(id) }),
+      text => state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: this.label(id), slot: this.memberSlot(id) }),
       message => {
         if (message.action === 'slides') this.slides.set(id, message);
         if (state().recipient === id) receiveTouch(message);
@@ -305,7 +309,7 @@ export class Bridge {
     if (!links.length) throw Error('Verify a device first.');
     const results = await Promise.allSettled(links.map(link => link.sendText(text)));
     const sent = results.filter(result => result.status === 'fulfilled').length;
-    if (sent) state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You' });
+    if (sent && !this.disposed) state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You', slot: this.memberSlot(this.id) });
     if (sent !== links.length) throw Error(`Sent to ${sent} of ${links.length} devices.`);
   }
 
