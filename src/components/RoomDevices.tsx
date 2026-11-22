@@ -52,14 +52,17 @@ export function RoomDevices({ bridge, qr, report, showRecipient }: {
     {profile && (editingName ?
       <form className="room-name-form" onSubmit={event => {
         event.preventDefault();
-        try { bridge?.rename(draftName); setEditingName(false); }
+        try {
+          if (bridge?.rename(draftName) === false) report('Your name changed for this room. This browser blocked saving it for next time.');
+          setEditingName(false);
+        }
         catch (error) { showError(error); }
       }}>
         <label>Display name
           <input autoFocus maxLength={ROOM_NAME_LIMIT} placeholder={fallback} value={draftName}
             onChange={event => setDraftName(event.target.value)}/>
         </label>
-        <p>Visible to everyone in the room. Leave blank to use {fallback}.</p>
+        <p>Remembered in this browser and visible to room members. Leave blank to use {fallback}.</p>
         <div className="file-actions">
           <button className="primary" type="submit">Save name</button>
           <button type="button" onClick={() => setEditingName(false)}>Cancel</button>

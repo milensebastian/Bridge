@@ -5,6 +5,7 @@ import type { Source } from '../transfer/fileSender';
 import { receiveTouch, resetTouch, type TouchMessage } from '../touch/session';
 import { PeerLink, type PeerSignal } from './peerLink';
 import { cleanRoomName, ROOM_SIZE, userLabel, type RoomProfile } from './roomProfile';
+import { rememberedDisplayName, rememberDisplayName } from './displayName';
 
 type RoomSignal = PeerSignal & { from: number };
 type Notice = { type: 'joined'; id: number; members: number[]; profiles?: RoomProfile[]; turnServer?: RTCIceServer }
@@ -171,6 +172,8 @@ export class Bridge {
       this.id = message.id;
       this.members = new Set(message.members);
       this.profiles = new Map(message.profiles?.map(profile => [profile.id, profile]));
+      const name = rememberedDisplayName();
+      if (name && this.profiles.has(this.id)) this.signal({ type: 'rename', name });
       if (message.turnServer) {
         this.iceServers.push(message.turnServer);
         this.turnAvailable = true;
@@ -279,7 +282,9 @@ export class Bridge {
     if (!this.profiles.has(this.id) || this.socket?.readyState !== WebSocket.OPEN) {
       throw Error('Display names are unavailable in this room.');
     }
-    this.signal({ type: 'rename', name: cleanRoomName(name) });
+    const cleanName = cleanRoomName(name);
+    this.signal({ type: 'rename', name: cleanName });
+    return rememberDisplayName(cleanName);
   }
 
   async verify(id: number) {
