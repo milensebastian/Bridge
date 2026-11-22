@@ -32,6 +32,8 @@ export class Bridge {
   private links = new Map<number, PeerLink>();
   private queues = new Map<number, Promise<void>>();
   private slides = new Map<number, Extract<TouchMessage, { action: 'slides' }>>();
+  private failedLinks = new Set<number>();
+  private turnAvailable = false;
   private selected?: number;
 
   private fail = (error: unknown) => {
@@ -43,7 +45,8 @@ export class Bridge {
     const devices = [...this.members].map(id => {
       const link = this.links.get(id);
       return { id, name: id === 1 ? 'Host' : `Device ${id}`, connected: link?.connected ?? false,
-        connecting: Boolean(link && !link.connected), verified: link?.verified ?? false,
+        connecting: Boolean(link && !link.connected), verified: link?.confirmed ?? false,
+        failed: this.failedLinks.has(id),
         ready: link?.ready ?? false, sas: link?.sas ?? '', route: link?.route ?? '' };
     });
     const verified = devices.filter(device => device.ready);
@@ -152,7 +155,10 @@ export class Bridge {
       }
       this.id = message.id;
       this.members = new Set(message.members);
-      if (message.turnServer) this.iceServers.push(message.turnServer);
+      if (message.turnServer) {
+        this.iceServers.push(message.turnServer);
+        this.turnAvailable = true;
+      }
       if (this.id === 1) {
         const url = new URL('/pair', location.origin);
         url.searchParams.set('r', this.room);
@@ -162,15 +168,26 @@ export class Bridge {
       this.publish();
       return;
     }
-    if (message.type === 'member-joined') { this.members.add(message.id); this.publish(); return; }
+    if (message.type === 'member-joined') {
+      this.members.add(message.id);
+      if (this.id === 1) this.connect(message.id);
+      this.publish();
+      return;
+    }
     if (message.type === 'member-left') {
       this.members.delete(message.id);
+      this.failedLinks.delete(message.id);
       this.drop(message.id);
       return;
     }
     if (!('from' in message) || !this.members.has(message.from)) return;
     const id = message.from;
-    if (message.type === 'bye') { this.drop(id); return; }
+    if (message.type === 'bye') {
+      const link = this.links.get(id);
+      if (link && !link.connected) this.failedLinks.add(id);
+      this.drop(id);
+      return;
+    }
     if (message.type === 'hello' && id === 1 && message.key !== this.hostKey) {
       this.disconnect(id);
       this.fail('The host key does not match the invitation. Ask the host for a fresh link.');
@@ -189,13 +206,15 @@ export class Bridge {
   connect(id: number) {
     const existing = this.links.get(id);
     if (existing || !this.members.has(id) || !this.identity || this.disposed) return existing;
+    this.failedLinks.delete(id);
     const link = new PeerLink(id, this.id, this.room, this.identity, this.iceServers,
       message => this.signal({ ...message, to: id }),
       () => this.publish(),
       () => {
         if (this.links.get(id) !== link) return;
+        if (!link.connected) this.failedLinks.add(id);
         this.disconnect(id);
-        this.fail(`Could not keep a connection with ${id === 1 ? 'the host' : `Device ${id}`}. Try connecting again.`);
+        if (link.connected) this.fail('The device disconnected. Use Connect to try again.');
       },
       this.fail,
       text => state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: id === 1 ? 'Host' : `Device ${id}` }),
@@ -232,8 +251,14 @@ export class Bridge {
 
   async verify(id: number) {
     const link = this.links.get(id);
-    if (!link?.connected) throw Error('This device is still connecting.');
+    if (!link?.sas) throw Error('Wait for the verification symbols.');
     await link.verify();
+  }
+
+  get connectionHelp() {
+    return this.turnAvailable
+      ? 'The connection timed out. Keep both Bridge tabs open and use Connect to try again.'
+      : 'A direct connection could not open. Try putting both devices on the same Wi-Fi, then use Connect.';
   }
 
   private target(id = state().recipient) {

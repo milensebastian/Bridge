@@ -12,26 +12,27 @@ export function RoomDevices({ bridge, qr, report }: { bridge?: Bridge; qr: strin
     <p className="room-summary">{label} (you) · {devices.length + 1} / 20 in room</p>
     {url && <>
       {qr && <div className="qr-wrap"><img src={qr} width="224" height="224" alt="Scan this QR code to join the room"/></div>}
-      <p className="pair-description">Share this invite with the devices you want to connect.</p>
+      <p className="pair-description">Scan the QR code, then confirm the matching symbols on both devices.</p>
       <button className="full" onClick={() => void navigator.clipboard.writeText(url)
         .then(() => report('Room invite copied')).catch(showError)}><Link size={15}/>Copy room invite</button>
     </>}
     <ul className="room-roster" aria-label="Room devices">
       {devices.map(device => <li key={device.id}>
         <div className="room-device-heading"><strong>{device.name}</strong>
-          <span>{device.ready ? device.route || 'Verified' : device.connected ? 'Verify' : device.connecting ? 'Connecting…' : 'In room'}</span>
+          <span>{device.ready ? 'Connected' : device.failed ? 'Connection failed' : device.sas && !device.verified ? 'Verify' : device.connected || device.connecting ? 'Connecting…' : 'In room'}</span>
         </div>
-        {device.connected && !device.ready && <>
+        {device.sas && !device.ready && <>
           <p>Compare these symbols on both devices.</p>
           <div className="sas" aria-label={`Verification symbols for ${device.name}`}>{device.sas}</div>
-          {device.verified ? <p>Waiting for the other device to confirm.</p> :
+          {device.verified ? <p>{device.connected ? 'Waiting for the other device to confirm.' : 'Confirmed here. Waiting for the connection to open.'}</p> :
             <button className="primary full" onClick={() => void bridge?.verify(device.id).catch(showError)}>
               <Check size={16}/>The symbols match
             </button>}
         </>}
+        {device.failed && <p role="status">{bridge?.connectionHelp}</p>}
         {device.connected || device.connecting ?
           <button className="text-button" onClick={() => bridge?.disconnect(device.id)}>
-            Disconnect {device.name}
+            {device.ready ? 'Disconnect' : 'Cancel connection to'} {device.name}
           </button> :
           <button className="full" onClick={() => {
             try { bridge?.connect(device.id); } catch (error) { showError(error); }

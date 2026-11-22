@@ -10,15 +10,25 @@ async function wait(get) {
   while(Date.now()<end){const value=get(); if(value)return value; await new Promise(r=>setTimeout(r,50));}
   throw Error('Timed out: '+useSession.getState().status+' '+useSession.getState().error);
 }
-window.testDevice={client,state:useSession.getState,getTransfers:useTransfers.getState};
+window.testDevice={client,state:useSession.getState,subscribe:useSession.subscribe,getTransfers:useTransfers.getState};
 async function test(){
   const guest=document.createElement('iframe'); guest.src='?guest'; document.body.append(guest);
   const peer=await wait(()=>guest.contentWindow.testDevice);
   await client.start();
+  const confirmWhenSymbolsAppear = (device, id) => device.subscribe(state => {
+    const link = state.devices.find(row => row.id === id && row.sas);
+    if (!link) return;
+    results.push(!link.connected);
+    const unsubscribe = id === 1 ? guestSubscription : hostSubscription;
+    unsubscribe();
+    void device.client.verify(id).catch(error => result.textContent = String(error));
+  });
+  const results = [];
+  const hostSubscription = confirmWhenSymbolsAppear(window.testDevice, 2);
+  const guestSubscription = confirmWhenSymbolsAppear(peer, 1);
   await peer.client.start(await wait(()=>useSession.getState().url));
-  await wait(()=>peer.state().connected && useSession.getState().connected);
-  await client.verify(2); await peer.client.verify(1);
   await wait(()=>peer.state().recipient === 1 && useSession.getState().recipient === 2);
+  if (results.length !== 2 || results.some(early => !early)) throw Error('Verification did not start before the data channels opened');
   await client.sendText('clipboard check'); await wait(()=>peer.state().clips.some(c=>c.text==='clipboard check'));
   const secondGuest = document.createElement('iframe');
   secondGuest.src = '?guest';

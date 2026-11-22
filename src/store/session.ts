@@ -2,7 +2,7 @@ import { create } from 'zustand';
 export type Clip = { id: string; text: string; at: number; source: string };
 export type Device = {
   id: number; name: string; connected: boolean; connecting: boolean;
-  verified: boolean; ready: boolean; sas: string; route: string;
+  verified: boolean; ready: boolean; failed: boolean; sas: string; route: string;
 };
 type Session = {
   status: string; url: string; roomActive: boolean; deviceId: number; devices: Device[];

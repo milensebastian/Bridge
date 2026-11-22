@@ -15,6 +15,7 @@ export class PeerLink {
   private tx = 0;
   private rx = -1;
   connected = false;
+  confirmed = false;
   verified = false;
   peerVerified = false;
   sas = '';
@@ -76,6 +77,7 @@ export class PeerLink {
       if (this.disposed) return;
       this.key = session.aes;
       this.sas = session.sas;
+      this.changed();
       if (this.localId > this.id) {
         this.bind(peer.createDataChannel('reliable-stream', { ordered: true }));
         this.bindRealtime(peer.createDataChannel('realtime-input', { ordered: false, maxRetransmits: 0 }));
@@ -255,6 +257,7 @@ export class PeerLink {
       this.connected = true;
       clearTimeout(this.timeout);
       this.changed();
+      if (this.confirmed) void this.verify().catch(this.fail);
     };
     channel.onopen = opened;
     if (channel.readyState === 'open') opened();
@@ -319,7 +322,12 @@ export class PeerLink {
     } else await this.send(packet);
   }
   async verify() {
+    if (!this.key || this.disposed) throw Error('Wait for the verification symbols.');
+    this.confirmed = true;
+    this.changed();
+    if (!this.connected || this.verified) return;
     await this.send({ type: 'verify' });
+    if (this.disposed) return;
     this.verified = true;
     this.changed();
   }
