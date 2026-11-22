@@ -83,6 +83,21 @@ async function test(){
   await client.sendText('all devices', true);
   await wait(() => third.state().clips.some(c => c.text === 'all devices') && peer.state().clips.some(c => c.text === 'all devices'));
   if (third.state().clips.some(c => c.text === 'only device 2')) throw Error('Targeted clipboard was delivered to the wrong device');
+  const skippedGuest = document.createElement('iframe');
+  skippedGuest.src = '?guest';
+  document.body.append(skippedGuest);
+  const skipped = await wait(() => skippedGuest.contentWindow.testDevice);
+  await skipped.client.start(useSession.getState().url);
+  await wait(() => skipped.state().devices.some(d => d.id === 1 && d.connected)
+    && useSession.getState().devices.some(d => d.id === 4 && d.connected));
+  await client.verify(4);
+  await skipped.client.verify(1);
+  await wait(() => useSession.getState().devices.some(d => d.id === 4 && d.ready));
+  await client.sendText('selected devices only', false, [2, 3, 2]);
+  await client.sendText('selection check finished', true);
+  await wait(() => [peer, third, skipped].every(device => device.state().clips.some(c => c.text === 'selection check finished')));
+  const copies = device => device.state().clips.filter(c => c.text === 'selected devices only').length;
+  if (copies(peer) !== 1 || copies(third) !== 1 || copies(skipped) !== 0) throw Error('Selected clipboard recipients were incorrect');
   peer.client.connect(3);
   await wait(() => peer.state().devices.some(d => d.id === 3 && d.connected)
     && third.state().devices.some(d => d.id === 2 && d.connected));
@@ -119,7 +134,7 @@ async function test(){
   const thirdQueue = third.getTransfers().queue;
   if (thirdQueue.some(row => row.label.includes('Folder'))) throw Error('Folder reached the wrong device');
   checkClipboardScroll();
-  result.textContent='Passed: three-device transfer, clipboard alignment and scroll behavior.';
+  result.textContent='Passed: selected clipboard recipients, file transfer, alignment and scroll behavior.';
   if(native) {
     const name='Module 4.1 (2).pdf';
     const sample=new File(['%PDF-1.4\nBridge download test\n%%EOF'],name,{type:'application/pdf'});
@@ -130,7 +145,7 @@ async function test(){
     const retry=document.createElement('a');retry.textContent='Retry received PDF'; retry.href=row.download.url;retry.download=row.download.name;
     document.body.append(retry);
     result.textContent='Native downloads ready';
-  } else {client.close(); peer.client.close(); third.client.close();}
+  } else {client.close(); peer.client.close(); third.client.close(); skipped.client.close();}
 }
 if(!new URLSearchParams(location.search).has('guest'))test().catch(e=>result.textContent=String(e));
 </script>

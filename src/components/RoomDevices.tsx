@@ -8,26 +8,52 @@ function MemberColor({ slot }: { slot: number }) {
   return <span className="member-color" aria-hidden="true" style={{ backgroundColor: memberColor(slot) }}/>;
 }
 
-export function RecipientPicker({ devices, recipient, onSelect, all }: {
+export function RecipientPicker({ devices, recipient, onSelect, all, multiple }: {
   devices: Device[]; recipient?: number; onSelect: (id: number) => void;
   all?: { selected: boolean; select: () => void };
+  multiple?: { selected: boolean; select: () => void };
 }) {
   const selected = devices.find(device => device.id === recipient);
-  const value = all?.selected && devices.length ? 'all' : recipient ?? '';
+  const value = multiple?.selected && devices.length ? 'multiple'
+    : all?.selected && devices.length ? 'all' : recipient ?? '';
   return <label className="room-recipient">
     <span className="member-name">{selected && <MemberColor slot={selected.slot}/>}Send to</span>
     <select value={value} disabled={!devices.length} onChange={event => {
       if (event.target.value === 'all') all?.select();
+      else if (event.target.value === 'multiple') multiple?.select();
       else onSelect(Number(event.target.value));
     }}>
       <option value="" disabled>{devices.length ? 'Choose a device' : 'No verified devices yet'}</option>
       {all && devices.length > 0 && <option value="all">All verified devices</option>}
+      {multiple && devices.length > 0 && <option value="multiple">Select devices</option>}
       {recipient !== undefined && !selected && <option value={recipient} disabled>Device disconnected</option>}
       {devices.map(device => <option key={device.id} value={device.id}>
         {device.customName ? `${device.name} · ${userLabel(device.slot)}` : device.name}
       </option>)}
     </select>
   </label>;
+}
+
+export function RecipientChecklist({ devices, selected, toggle, removeUnavailable }: {
+  devices: Device[]; selected: number[]; toggle: (id: number) => void; removeUnavailable: () => void;
+}) {
+  const unavailable = selected.filter(id => !devices.some(device => device.id === id)).length;
+  const firstCheckbox = useRef<HTMLInputElement>(null);
+  useEffect(() => { firstCheckbox.current?.focus({ preventScroll: true }); }, []);
+  return <fieldset className="recipient-checklist">
+    <legend>Choose recipients</legend>
+    {devices.length ? <div className="recipient-checklist-items">
+      {devices.map((device, index) => <label className="recipient-check" key={device.id}>
+        <input ref={index === 0 ? firstCheckbox : undefined} type="checkbox" checked={selected.includes(device.id)} onChange={() => toggle(device.id)}/>
+        <MemberColor slot={device.slot}/>
+        <span dir="auto">{device.name}{device.customName && <small> · {userLabel(device.slot)}</small>}</span>
+      </label>)}
+    </div> : <p>No verified devices yet.</p>}
+    {unavailable > 0 && <div className="recipient-unavailable">
+      <p role="status">{unavailable} selected {unavailable === 1 ? 'device is' : 'devices are'} unavailable.</p>
+      <button type="button" className="text-button" onClick={removeUnavailable}>Remove unavailable</button>
+    </div>}
+  </fieldset>;
 }
 
 const pairingSteps = ['Joining', 'Confirm symbols', 'Connected'];

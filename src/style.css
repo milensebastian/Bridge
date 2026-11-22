@@ -31,7 +31,16 @@
 .composer-actions .room-recipient{display:flex;align-items:center;gap:6px;margin:0;min-width:0}
 .composer-actions .room-recipient>span{flex-wrap:nowrap;white-space:nowrap;color:var(--muted)}
 .composer-actions .room-recipient select{min-width:0;max-width:164px;min-height:34px;font-size:.75rem;padding:5px}
-.composer-actions .primary{white-space:nowrap}
+.composer-actions .primary{white-space:nowrap;flex-shrink:0}
+.recipient-checklist{min-inline-size:0;margin:0 12px 4px;padding:6px 8px 8px;border:1px solid var(--line);border-radius:6px;background:var(--subtle)}
+.recipient-checklist legend{padding:0 4px;color:var(--muted);font-size:.75rem}
+.recipient-checklist-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:3px;max-height:176px;overflow:auto;scrollbar-gutter:stable}
+.recipient-check{min-height:44px;display:flex;align-items:center;gap:7px;padding:6px;border-radius:4px;font-size:.8rem;cursor:pointer}
+.recipient-check:hover,.recipient-check:has(input:checked){background:var(--surface)}
+.recipient-check input{flex-shrink:0}
+.recipient-check>span:last-child{min-width:0;overflow-wrap:anywhere}
+.recipient-check small,.recipient-checklist>p,.recipient-unavailable p{color:var(--muted);font-size:.75rem}
+.recipient-unavailable{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
 .received-file{padding-top:8px}
 .received-file>p:first-child{font-weight:600;color:var(--ink)}
 .received-file>p:last-child{margin-top:6px}

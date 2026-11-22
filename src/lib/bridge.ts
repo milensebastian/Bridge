@@ -308,10 +308,12 @@ export class Bridge {
   async sendFiles(sources: Source[], id?: number) { await this.target(id).sendFiles(sources); }
   sendTouch(message: TouchMessage) { return this.target().sendTouch(message); }
 
-  async sendText(text: string, broadcast = false, recipient?: number) {
+  async sendText(text: string, broadcast = false, recipient?: number | readonly number[]) {
     if (!text.trim() || text.length > 12000) throw Error('Enter between 1 and 12,000 characters.');
-    const links = broadcast ? [...this.links.values()].filter(link => link.ready) : [this.target(recipient)];
-    if (!links.length) throw Error('Verify a device first.');
+    const links = broadcast ? [...this.links.values()].filter(link => link.ready)
+      : typeof recipient === 'number' || recipient === undefined ? [this.target(recipient)]
+      : [...new Set(recipient)].map(id => this.target(id));
+    if (!links.length) throw Error('Choose at least one verified device first.');
     const results = await Promise.allSettled(links.map(link => link.sendText(text)));
     const sent = results.filter(result => result.status === 'fulfilled').length;
     if (sent && !this.disposed) state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You', slot: this.memberSlot(this.id), sentByMe: true });

@@ -7,17 +7,20 @@ import {FileTools,TransferQueue} from './components/FileTools';
 import {useTouch} from './touch/session';
 import Scanner from './components/Scanner';
 import { CameraTools } from './components/CameraTools';
-import { RecipientPicker, RoomDevices } from './components/RoomDevices';
+import { RecipientChecklist, RecipientPicker, RoomDevices } from './components/RoomDevices';
 import { ClipboardHistory } from './components/ClipboardHistory';
 
 const TouchTools = lazy(()=>import('./touch/TouchTools'));
+type ClipboardTarget = 'all' | 'multiple' | number;
+type ClipboardDestination = 'all' | number | readonly number[];
 const modules = [{ name: 'Clipboard', icon: Clipboard }, { name: 'Files', icon: Files }, { name: 'Camera & scan', icon: Camera }, { name: 'Touch & sign', icon: Touchpad }];
 export default function App() {
   const session = useSession(); const bridge = useRef<Bridge | undefined>(undefined);
   const initialPairUrl = useRef(location.pathname === '/pair' && location.search && location.hash ? location.href : undefined);
   const lastInvite = useRef<string | undefined>(undefined);
   const [tab, setTab] = useState('Clipboard'); const [text, setText] = useState('');
-  const [clipboardTarget, setClipboardTarget] = useState<number | 'all'>('all');
+  const [clipboardTarget, setClipboardTarget] = useState<ClipboardTarget>('all');
+  const [selectedRecipients, setSelectedRecipients] = useState<number[]>([]);
   const [openedTouch,setOpenedTouch]=useState(false);
   const signatureRequest=useTouch(s=>s.request);
   useEffect(()=>{if(signatureRequest){setOpenedTouch(true);setTab('Touch & sign');}},[signatureRequest]);
@@ -28,12 +31,21 @@ export default function App() {
   const ready = session.recipient !== undefined;
   const verifiedDevices = session.devices.filter(device => device.ready);
   const verifiedCount = verifiedDevices.length;
-  const individualTarget = clipboardTarget === 'all' ? undefined : clipboardTarget;
-  const clipboardReady = clipboardTarget === 'all' ? verifiedCount > 0 : verifiedDevices.some(device => device.id === clipboardTarget);
+  const individualTarget = typeof clipboardTarget === 'number' ? clipboardTarget : undefined;
+  const clipboardDestination = clipboardTarget === 'multiple' ? selectedRecipients : clipboardTarget;
+  const isVerified = (id: number) => verifiedDevices.some(device => device.id === id);
+  const clipboardReady = clipboardTarget === 'all' ? verifiedCount > 0
+    : clipboardTarget === 'multiple' ? selectedRecipients.length > 0 && selectedRecipients.every(isVerified)
+    : isVerified(clipboardTarget);
   const canAutoSync = individualTarget !== undefined && clipboardReady;
+  const changeClipboardTarget = (target: ClipboardTarget) => {
+    setAutoSync(false);
+    setClipboardTarget(target);
+  };
   useEffect(() => { setAutoSync(false); }, [clipboardTarget, canAutoSync]);
   const start = useCallback((url?: string) => {
     setClipboardTarget('all');
+    setSelectedRecipients([]);
     setAutoSync(false);
     lastInvite.current = url;
     bridge.current?.close();
@@ -50,7 +62,7 @@ export default function App() {
   useEffect(() => { let cancelled = false; setQr(''); if (session.url) void QRCode.toDataURL(session.url, { width: 224, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#202423', light: '#ffffff' } }).then(value => { if (!cancelled) setQr(value); }); return () => { cancelled = true; }; }, [session.url]);
   useEffect(() => { if (notice) { const timer = setTimeout(() => setNotice(''), 4000); return () => clearTimeout(timer); } }, [notice]);
   const perform = async (action: () => Promise<void>, success?: string) => { try { await action(); if (success) setNotice(success); } catch (error) { setNotice(error instanceof Error ? error.message : 'This action is unavailable.'); } };
-  const sync = useCallback(async (target: number | 'all') => {
+  const sync = useCallback(async (target: ClipboardDestination) => {
     const current = bridge.current;
     if (!current) throw Error('Connect a verified device first.');
     const value = await navigator.clipboard.readText();
@@ -94,25 +106,33 @@ export default function App() {
           const current = bridge.current;
           const draft = text;
           void perform(async () => {
-            await current.sendText(draft, clipboardTarget === 'all', individualTarget);
+            if (clipboardDestination === 'all') await current.sendText(draft, true);
+            else await current.sendText(draft, false, clipboardDestination);
             setText(value => value === draft ? '' : value);
           }, 'Clipboard sent');
         }}>
           <textarea aria-label="Text to send" placeholder="Paste a link, jot a note, or drop in some text…"
             maxLength={12000} value={text} onChange={event => setText(event.target.value)}/>
+          {clipboardTarget === 'multiple' && <RecipientChecklist devices={verifiedDevices} selected={selectedRecipients}
+            toggle={id => setSelectedRecipients(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id])}
+            removeUnavailable={() => setSelectedRecipients(ids => ids.filter(isVerified))}/>}
           <div className="composer-footer">
             <span>{text.length ? `${text.length.toLocaleString()} / 12,000` : 'Only shared when you send.'}</span>
             <div className="composer-actions">
-              <RecipientPicker devices={verifiedDevices} recipient={individualTarget} onSelect={setClipboardTarget}
-                all={{ selected: clipboardTarget === 'all', select: () => setClipboardTarget('all') }}/>
-              <button className="primary" disabled={!clipboardReady || !text.trim()} type="submit">Send</button>
+              <RecipientPicker devices={verifiedDevices} recipient={individualTarget} onSelect={changeClipboardTarget}
+                all={{ selected: clipboardTarget === 'all', select: () => changeClipboardTarget('all') }}
+                multiple={{ selected: clipboardTarget === 'multiple', select: () => changeClipboardTarget('multiple') }}/>
+              <button className="primary" disabled={!clipboardReady || !text.trim()} type="submit">
+                {clipboardTarget === 'multiple' && selectedRecipients.length
+                  ? `Send to ${selectedRecipients.length} ${selectedRecipients.length === 1 ? 'device' : 'devices'}` : 'Send'}
+              </button>
             </div>
           </div>
         </form>
         <div className="sync-row">
-          <button className="text-button" disabled={!clipboardReady} onClick={() => void perform(() => sync(clipboardTarget), 'Clipboard sent')}><Copy size={15}/>Sync clipboard now</button>
+          <button className="text-button" disabled={!clipboardReady} onClick={() => void perform(() => sync(clipboardDestination), 'Clipboard sent')}><Copy size={15}/>Sync clipboard now</button>
           <label><input type="checkbox" disabled={!canAutoSync} checked={autoSync && canAutoSync}
-            onChange={event => setAutoSync(event.target.checked)}/>Sync when I return{clipboardTarget === 'all' ? ' (one device only)' : ''}</label>
+            onChange={event => setAutoSync(event.target.checked)}/>Sync when I return{individualTarget === undefined ? ' (one device only)' : ''}</label>
         </div>
         <div className="workspace-note"><ShieldCheck size={14}/><span>Session history stays in this tab and clears when you disconnect.</span></div></div> : tab === 'Files' ? <FileTools bridge={bridge.current} ready={ready} report={setNotice}/> : tab === 'Camera & scan' ? <CameraTools bridge={bridge.current} ready={ready} report={setNotice}/> : tab === 'Touch & sign' ? null : <div className="upcoming"><div className="empty-icon"><Touchpad size={25}/></div><span className="eyebrow">COMING IN A LATER MILESTONE</span><h2>{tab}</h2><p>Sign with your phone and control presentations from your seat.</p><button onClick={() => setTab('Clipboard')}>Back to clipboard</button></div>}
       {openedTouch && <Suspense fallback={<p role="status">Opening presenter�</p>}><TouchTools bridge={bridge.current} ready={ready} report={setNotice} visible={tab==='Touch & sign'}/></Suspense>}
