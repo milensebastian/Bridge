@@ -40,6 +40,7 @@ export function FileTools({bridge,ready,report}: Props) {
 
 export function TransferQueue({bridge,report}: Omit<Props,'ready'>) {
   const queue = useTransfers(s=>s.queue);
+  const devices = useSession(s => s.devices);
   useEffect(() => {
     void restoreDownloads().catch(e=>report(String(e)));
   },[report]);
@@ -47,7 +48,7 @@ export function TransferQueue({bridge,report}: Omit<Props,'ready'>) {
   return <section className="transfer-queue" aria-label="Transfers queue"><h3>Transfers</h3>{queue.map(row=>{
     const active = row.status === 'Active' || row.status === 'Paused';
     return <article key={row.id}><strong>{row.label}</strong>
-      <p>{row.direction}{row.device ? ` ${row.direction === 'Sending' ? 'to' : 'from'} ${row.device === 1 ? 'Host' : `Device ${row.device}`}` : ''} · {size(row.bytes)} of {size(row.total)} · {row.status}</p>
+      <p>{row.direction}{row.device ? ` ${row.direction === 'Sending' ? 'to' : 'from'} ${devices.find(device => device.id === row.device)?.name ?? 'a room member'}` : ''} · {size(row.bytes)} of {size(row.total)} · {row.status}</p>
       <progress aria-label={row.label} max={row.total || 1} value={row.total ? row.bytes : Number(row.status === 'Complete')}/>
       {active && <><p>{row.status === 'Active' ? row.speedMBps.toFixed(1) + ' MB/s' : 'Paused'}{row.etaSeconds > 0 && row.status === 'Active' && ' · ' + Math.ceil(row.etaSeconds) + 's left'}</p>
         {row.direction === 'Receiving' && <p>Keep this tab open and your screen awake.</p>}

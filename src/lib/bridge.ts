@@ -4,10 +4,13 @@ import { useTransfers } from '../store/transfers';
 import type { Source } from '../transfer/fileSender';
 import { receiveTouch, resetTouch, type TouchMessage } from '../touch/session';
 import { PeerLink, type PeerSignal } from './peerLink';
+import { cleanRoomName, ROOM_SIZE, userLabel, type RoomProfile } from './roomProfile';
 
 type RoomSignal = PeerSignal & { from: number };
-type Notice = { type: 'joined'; id: number; members: number[]; turnServer?: RTCIceServer }
-  | { type: 'member-joined' | 'member-left'; id: number }
+type Notice = { type: 'joined'; id: number; members: number[]; profiles?: RoomProfile[]; turnServer?: RTCIceServer }
+  | { type: 'member-joined'; id: number; profile?: RoomProfile }
+  | { type: 'member-left'; id: number }
+  | { type: 'member-renamed'; profile: RoomProfile }
   | { type: 'bye'; from: number }
   | { type: 'error'; message: string }
   | RoomSignal;
@@ -29,6 +32,7 @@ export class Bridge {
   private disposed = false;
   private iceServers: RTCIceServer[] = [];
   private members = new Set<number>();
+  private profiles = new Map<number, RoomProfile>();
   private links = new Map<number, PeerLink>();
   private queues = new Map<number, Promise<void>>();
   private slides = new Map<number, Extract<TouchMessage, { action: 'slides' }>>();
@@ -40,11 +44,18 @@ export class Bridge {
     if (!this.disposed) state().set({ error: error instanceof Error ? error.message : String(error) });
   };
 
+  private label(id: number) {
+    const profile = this.profiles.get(id);
+    return profile?.name || userLabel(profile?.slot ?? id);
+  }
+
   private publish() {
     if (this.disposed) return;
     const devices = [...this.members].map(id => {
       const link = this.links.get(id);
-      return { id, name: id === 1 ? 'Host' : `Device ${id}`, connected: link?.connected ?? false,
+      const profile = this.profiles.get(id);
+      return { id, slot: profile?.slot ?? (id - 1) % ROOM_SIZE + 1, name: this.label(id),
+        customName: Boolean(profile?.name), connected: link?.connected ?? false,
         connecting: Boolean(link && !link.connected), verified: link?.confirmed ?? false,
         failed: this.failedLinks.has(id),
         ready: link?.ready ?? false, sas: link?.sas ?? '', route: link?.route ?? '' };
@@ -58,7 +69,7 @@ export class Bridge {
         try { receiveTouch(slides); } catch (error) { this.fail(error); }
       }
     }
-    state().set({ roomActive: Boolean(this.id), deviceId: this.id, devices, recipient: recipient?.id,
+    state().set({ roomActive: Boolean(this.id), deviceId: this.id, profile: this.profiles.get(this.id), devices, recipient: recipient?.id,
       connected: devices.some(device => device.connected), route: recipient?.route ?? '' });
   }
 
@@ -155,6 +166,7 @@ export class Bridge {
       }
       this.id = message.id;
       this.members = new Set(message.members);
+      this.profiles = new Map(message.profiles?.map(profile => [profile.id, profile]));
       if (message.turnServer) {
         this.iceServers.push(message.turnServer);
         this.turnAvailable = true;
@@ -170,14 +182,24 @@ export class Bridge {
     }
     if (message.type === 'member-joined') {
       this.members.add(message.id);
+      if (message.profile) this.profiles.set(message.id, message.profile);
       if (this.id === 1) this.connect(message.id);
       this.publish();
       return;
     }
     if (message.type === 'member-left') {
       this.members.delete(message.id);
+      this.profiles.delete(message.id);
       this.failedLinks.delete(message.id);
       this.drop(message.id);
+      return;
+    }
+    if (message.type === 'member-renamed') {
+      const { profile } = message;
+      if (profile.id === this.id || this.members.has(profile.id)) {
+        this.profiles.set(profile.id, profile);
+        this.publish();
+      }
       return;
     }
     if (!('from' in message) || !this.members.has(message.from)) return;
@@ -217,7 +239,7 @@ export class Bridge {
         if (link.connected) this.fail('The device disconnected. Use Connect to try again.');
       },
       this.fail,
-      text => state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: id === 1 ? 'Host' : `Device ${id}` }),
+      text => state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: this.label(id) }),
       message => {
         if (message.action === 'slides') this.slides.set(id, message);
         if (state().recipient === id) receiveTouch(message);
@@ -247,6 +269,13 @@ export class Bridge {
   select(id?: number) {
     this.selected = id;
     this.publish();
+  }
+
+  rename(name: string) {
+    if (!this.profiles.has(this.id) || this.socket?.readyState !== WebSocket.OPEN) {
+      throw Error('Display names are unavailable in this room.');
+    }
+    this.signal({ type: 'rename', name: cleanRoomName(name) });
   }
 
   async verify(id: number) {
@@ -301,7 +330,7 @@ export class Bridge {
     this.queues.clear();
     resetTouch();
     useTransfers.setState(s => ({ queue: s.queue.filter(row => row.download) }));
-    state().set({ connected: false, connecting: false, roomActive: false, deviceId: 0, devices: [], recipient: undefined,
+    state().set({ connected: false, connecting: false, roomActive: false, deviceId: 0, profile: undefined, devices: [], recipient: undefined,
       url: '', clips: [], error: '', status: 'Not connected', route: '' });
   }
 }

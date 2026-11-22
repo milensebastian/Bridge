@@ -49,11 +49,15 @@ test('Group relay admits 20 devices, routes signals privately, and reuses open s
     assert.equal(host.reply.id, 1);
     const firstJoin = read(host.socket);
     const first = await join('guest');
-    assert.deepEqual(await firstJoin, { type: 'member-joined', id: 2 });
+    assert.deepEqual(await firstJoin, { type: 'member-joined', id: 2, profile: { id: 2, slot: 2, name: '' } });
+    const renamed = read(host.socket);
+    first.socket.send(JSON.stringify({ type: 'rename', id: 1, name: '  Milen  ' }));
+    assert.deepEqual(await renamed, { type: 'member-renamed', profile: { id: 2, slot: 2, name: 'Milen' } });
     const secondJoin = read(host.socket);
     const second = await join('guest');
-    assert.deepEqual(await secondJoin, { type: 'member-joined', id: 3 });
+    assert.deepEqual(await secondJoin, { type: 'member-joined', id: 3, profile: { id: 3, slot: 3, name: '' } });
     assert.deepEqual(second.reply.members, [1, 2]);
+    assert.deepEqual(second.reply.profiles, [{ id: 1, slot: 1, name: '' }, { id: 2, slot: 2, name: 'Milen' }, { id: 3, slot: 3, name: '' }]);
     const delivered = read(second.socket);
     const unrelated = (message: Buffer) => assert.fail(`Host received unrelated signal: ${message}`);
     host.socket.on('message', unrelated);
@@ -63,13 +67,15 @@ test('Group relay admits 20 devices, routes signals privately, and reuses open s
     for (let id = 4; id <= 20; id++) {
       const announced = read(host.socket);
       assert.equal((await join('guest')).reply.id, id);
-      assert.deepEqual(await announced, { type: 'member-joined', id });
+      assert.deepEqual(await announced, { type: 'member-joined', id, profile: { id, slot: id, name: '' } });
     }
     assert.equal((await join('guest')).reply.type, 'error');
     const departure = read(host.socket);
     first.socket.close();
     assert.deepEqual(await departure, { type: 'member-left', id: 2 });
-    assert.equal((await join('guest')).reply.id, 21);
+    const replacement = await join('guest');
+    assert.equal(replacement.reply.id, 21);
+    assert.deepEqual(replacement.reply.profiles.find((profile: { id: number }) => profile.id === 21), { id: 21, slot: 2, name: '' });
     const guestClosed = once(second.socket, 'close');
     host.socket.close();
     await guestClosed;

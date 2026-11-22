@@ -1,10 +1,11 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'node:http';
 import { createHmac, randomUUID } from 'node:crypto';
+import { cleanRoomName, ROOM_SIZE, type RoomProfile } from '../src/lib/roomProfile';
 
 export function createRelay(server: Server, allowedOrigins: string[] = []) {
   const wss = new WebSocketServer({ server, path: '/signal', maxPayload: 64 * 1024, verifyClient: ({ origin }: { origin: string }) => !allowedOrigins.length || allowedOrigins.includes(origin) });
-  type Room = { host: WebSocket; members: Map<number, WebSocket>; group: boolean; nextId: number; expires: number };
+  type Room = { host: WebSocket; members: Map<number, WebSocket>; profiles: Map<number, RoomProfile>; group: boolean; nextId: number; expires: number };
   const rooms = new Map<string, Room>();
   wss.on('connection', socket => {
     let roomId: string | undefined;
@@ -32,15 +33,20 @@ export function createRelay(server: Server, allowedOrigins: string[] = []) {
           const group = message.version === 2;
           if (message.role === 'host') {
             if (room || rooms.size >= 1000) throw Error('Room unavailable');
-            room = { host: socket, members: new Map(), group, nextId: 1, expires: Date.now() + 300000 };
+            room = { host: socket, members: new Map(), profiles: new Map(), group, nextId: 1, expires: Date.now() + 300000 };
             rooms.set(message.room, room);
           } else {
             if (!room || room.group !== group || room.host.readyState !== WebSocket.OPEN) throw Error('Room unavailable or expired');
-            if (room.members.size >= (room.group ? 20 : 2)) throw Error('This room is full');
+            if (room.members.size >= (room.group ? ROOM_SIZE : 2)) throw Error('This room is full');
           }
           roomId = message.room;
           memberId = room.nextId++;
           const members = [...room.members.keys()];
+          const occupied = new Set([...room.profiles.values()].map(profile => profile.slot));
+          let slot = 1;
+          while (occupied.has(slot)) slot++;
+          const profile = { id: memberId, slot, name: '' };
+          room.profiles.set(memberId, profile);
           room.members.set(memberId, socket);
           if (room.group && room.members.size > 1) room.expires = Infinity;
           const secret = process.env.TURN_SHARED_SECRET;
@@ -55,14 +61,26 @@ export function createRelay(server: Server, allowedOrigins: string[] = []) {
             const credential = createHmac('sha1', secret).update(username).digest('base64');
             turnServer = { urls, username, credential };
           }
-          socket.send(JSON.stringify({ type: 'joined', turnServer, ...(group ? { id: memberId, members } : {}) }));
+          socket.send(JSON.stringify({ type: 'joined', turnServer,
+            ...(group ? { id: memberId, members, profiles: [...room.profiles.values()] } : {}) }));
           if (group) for (const [id, peer] of room.members) {
-            if (id !== memberId && peer.readyState === WebSocket.OPEN) peer.send(JSON.stringify({ type: 'member-joined', id: memberId }));
+            if (id !== memberId && peer.readyState === WebSocket.OPEN) peer.send(JSON.stringify({ type: 'member-joined', id: memberId, profile }));
           }
           return;
         }
         const room = rooms.get(roomId);
         if (!room) return;
+        if (room.group && message.type === 'rename') {
+          const profile = room.profiles.get(memberId);
+          if (!profile || typeof message.name !== 'string') throw Error('Invalid display name');
+          const name = cleanRoomName(message.name);
+          if (profile.name === name) return;
+          profile.name = name;
+          for (const peer of room.members.values()) {
+            if (peer.readyState === WebSocket.OPEN) peer.send(JSON.stringify({ type: 'member-renamed', profile }));
+          }
+          return;
+        }
         if (room.group && (!Number.isSafeInteger(message.to) || message.to === memberId)) throw Error('Invalid signaling destination');
         if (!['hello', 'offer', 'answer', 'ice'].includes(message.type) && !(room.group && message.type === 'bye')) throw Error('Signaling only');
         let forwarded: Record<string, unknown>;
@@ -91,6 +109,7 @@ export function createRelay(server: Server, allowedOrigins: string[] = []) {
       const room = roomId ? rooms.get(roomId) : undefined;
       if (!room || room.members.get(memberId) !== socket) return;
       room.members.delete(memberId);
+      room.profiles.delete(memberId);
       if (!room.group) {
         if (!room.members.size) rooms.delete(roomId!);
         return;

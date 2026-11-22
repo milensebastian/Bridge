@@ -1,11 +1,12 @@
 import { create } from 'zustand';
+import type { RoomProfile } from '../lib/roomProfile';
 export type Clip = { id: string; text: string; at: number; source: string };
 export type Device = {
-  id: number; name: string; connected: boolean; connecting: boolean;
+  id: number; slot: number; name: string; customName: boolean; connected: boolean; connecting: boolean;
   verified: boolean; ready: boolean; failed: boolean; sas: string; route: string;
 };
 type Session = {
-  status: string; url: string; roomActive: boolean; deviceId: number; devices: Device[];
+  status: string; url: string; roomActive: boolean; deviceId: number; devices: Device[]; profile?: RoomProfile;
   recipient?: number; connected: boolean; connecting: boolean; error: string; clips: Clip[]; route: string;
   set: (state: Partial<Omit<Session, 'set' | 'add'>>) => void; add: (clip: Clip) => void;
 };
