@@ -11,6 +11,7 @@
 .file-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .file-drop .file-actions{justify-content:center}
 .file-actions button,.transfer-queue a{min-height:44px}
+.room-summary{margin-top:12px;font-size:.8rem}.room-roster{list-style:none;padding:0;margin:12px 0;text-align:left}.room-roster li{padding:12px 0;border-top:1px solid var(--line)}.room-device-heading{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:.85rem;margin-bottom:6px}.room-device-heading span,.room-roster p{font-size:.75rem;color:var(--muted)}.room-roster .sas{margin:8px 0;text-align:center}.room-recipient{display:grid;gap:6px;text-align:left;font-size:.8rem;margin:12px 0}.room-recipient select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:9px;min-height:44px}
 .camera-actions{display:flex;gap:10px;flex-wrap:wrap;margin:28px 0}.camera-actions button{min-height:48px}.scan-result{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:7px;padding:12px;margin:18px 0;overflow-wrap:anywhere}.scan-result span{font-size:.75rem;color:var(--muted)}.scan-result code{font: .8rem/1.5 monospace;flex:1;overflow-wrap:anywhere}
 .transfer-queue{margin:0 24px 24px;padding-top:18px;border-top:1px solid var(--line)}
 .transfer-queue article{margin-top:14px;padding:16px;border:1px solid var(--line);border-radius:8px;overflow-wrap:anywhere}

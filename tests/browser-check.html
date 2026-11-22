@@ -10,16 +10,42 @@ async function wait(get) {
   while(Date.now()<end){const value=get(); if(value)return value; await new Promise(r=>setTimeout(r,50));}
   throw Error('Timed out: '+useSession.getState().status+' '+useSession.getState().error);
 }
-window.testDevice={client,state:useSession.getState};
+window.testDevice={client,state:useSession.getState,getTransfers:useTransfers.getState};
 async function test(){
   const guest=document.createElement('iframe'); guest.src='?guest'; document.body.append(guest);
   const peer=await wait(()=>guest.contentWindow.testDevice);
   await client.start();
   await peer.client.start(await wait(()=>useSession.getState().url));
   await wait(()=>peer.state().connected && useSession.getState().connected);
-  await client.verify(); await peer.client.verify();
-  await wait(()=>peer.state().peerVerified && useSession.getState().peerVerified);
+  await client.verify(2); await peer.client.verify(1);
+  await wait(()=>peer.state().recipient === 1 && useSession.getState().recipient === 2);
   await client.sendText('clipboard check'); await wait(()=>peer.state().clips.some(c=>c.text==='clipboard check'));
+  const secondGuest = document.createElement('iframe');
+  secondGuest.src = '?guest';
+  document.body.append(secondGuest);
+  const third = await wait(() => secondGuest.contentWindow.testDevice);
+  await third.client.start(useSession.getState().url);
+  await wait(() => third.state().devices.some(device => device.id === 1 && device.connected)
+    && useSession.getState().devices.some(device => device.id === 3 && device.connected));
+  await client.verify(3);
+  await third.client.verify(1);
+  await wait(() => useSession.getState().devices.filter(device => device.ready).length === 2 && third.state().recipient === 1);
+  client.select(2);
+  await client.sendText('only device 2');
+  await client.sendText('all devices', true);
+  await wait(() => third.state().clips.some(c => c.text === 'all devices') && peer.state().clips.some(c => c.text === 'all devices'));
+  if (third.state().clips.some(c => c.text === 'only device 2')) throw Error('Targeted clipboard was delivered to the wrong device');
+  peer.client.connect(3);
+  await wait(() => peer.state().devices.some(d => d.id === 3 && d.connected)
+    && third.state().devices.some(d => d.id === 2 && d.connected));
+  await peer.client.verify(3);
+  await third.client.verify(2);
+  await wait(() => peer.state().devices.some(d => d.id === 3 && d.ready));
+  peer.client.select(3);
+  await peer.client.sendText('guest to guest');
+  await wait(() => third.state().clips.some(c => c.text === 'guest to guest'));
+  peer.client.select(1);
+  third.client.select(1);
   result.textContent='Paired. Testing encrypted folder data and ZIP downloadâ€¦';
   const native=new URLSearchParams(location.search).has('native');
   // Native mode also exercises Chromium's download manager in an isolated browser profile.
@@ -42,7 +68,9 @@ async function test(){
   }
   check(check(0,'Folder/nested/sample.bin',data),'Folder/empty.txt',[]);
   if(h.getUint32(archive.length-22,true)!==0x06054b50)throw Error('Missing ZIP directory');
-  result.textContent='Passed: paired browsers exchanged clipboard text and a 3 MiB nested folder. ZIP paths, payload and empty file verified.';
+  const thirdQueue = third.getTransfers().queue;
+  if (thirdQueue.some(row => row.label.includes('Folder'))) throw Error('Folder reached the wrong device');
+  result.textContent='Passed: three devices verified, exchanged targeted and broadcast clipboard text, and transferred a 3 MiB nested folder to the selected device only.';
   if(native) {
     const name='Module 4.1 (2).pdf';
     const sample=new File(['%PDF-1.4\nBridge download test\n%%EOF'],name,{type:'application/pdf'});
@@ -53,7 +81,7 @@ async function test(){
     const retry=document.createElement('a');retry.textContent='Retry received PDF'; retry.href=row.download.url;retry.download=row.download.name;
     document.body.append(retry);
     result.textContent='Native downloads ready';
-  } else {client.close(); peer.client.close();}
+  } else {client.close(); peer.client.close(); third.client.close();}
 }
 if(!new URLSearchParams(location.search).has('guest'))test().catch(e=>result.textContent=String(e));
 </script>

@@ -31,7 +31,7 @@ async function test(){
   const peer=await wait(()=>guest.contentWindow.device);
   await client.start();await peer.client.start(await wait(()=>useSession.getState().url));
   await wait(()=>peer.state().connected && useSession.getState().connected);
-  await client.verify();await peer.client.verify();await wait(()=>peer.state().peerVerified && useSession.getState().peerVerified);
+  await client.verify(2);await peer.client.verify(1);await wait(()=>peer.state().recipient === 1 && useSession.getState().recipient === 2);
   const slides={id:crypto.randomUUID(),title:deck.title,page:1,count:2};
   useTouch.setState({local:slides});
   await client.sendTouch({type:'touch',action:'slides',slides});

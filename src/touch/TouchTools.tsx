@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import type {RenderTask} from 'pdfjs-dist';
 import {ArrowLeft,ArrowRight,Maximize,PenLine} from 'lucide-react';
 import type {Bridge} from '../lib/bridge';
+import {useSession} from '../store/session';
 import {useTouch, step, type TouchMessage} from './session';
 import {openDeck,pickerTypes,signatureImage,signedPdf,type Deck,type Stamp} from './document';
 import {InkView,SignaturePad} from './SignaturePad';
@@ -9,6 +10,7 @@ import {InkView,SignaturePad} from './SignaturePad';
 type Props={bridge?:Bridge; ready:boolean; report:(s:string)=>void; visible:boolean};
 export default function TouchTools({bridge,ready,report,visible}:Props) {
   const {local,remote,ink,confirmed,request,laser}=useTouch();
+  const recipient = useSession(s => s.recipient);
   const [deck,setDeck]=useState<Deck|null>(null),[stamps,setStamps]=useState<Stamp[]>([]);
   const [loading,setLoading]=useState(false),[rendered,setRendered]=useState(''),[placing,setPlacing]=useState(false);
   const [drawing,setDrawing]=useState(false),[expanded,setExpanded]=useState(false);
@@ -26,7 +28,7 @@ export default function TouchTools({bridge,ready,report,visible}:Props) {
   function error(e:unknown) {report(e instanceof Error ? e.message : String(e));}
   useEffect(()=>{
     if (ready && bridge) void bridge.sendTouch({type:'touch',action:'slides',slides:local}).catch(error);
-  },[bridge,ready,local]);
+  },[bridge,ready,local,recipient]);
   useEffect(()=>{if(!ready){setDrawing(false);setPlacing(false);}},[ready]);
   useEffect(()=>()=>{void deck?.doc.destroy();},[deck]);
   useEffect(()=>{
