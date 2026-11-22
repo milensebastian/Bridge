@@ -290,8 +290,8 @@ export class Bridge {
 
   get connectionHelp() {
     return this.turnAvailable
-      ? 'The connection timed out. Keep both Bridge tabs open and use Connect to try again.'
-      : 'A direct connection could not open. Try putting both devices on the same Wi-Fi, then use Connect.';
+      ? 'Neither path connected. The relay may be blocked on this network or its free monthly quota may be used up. Keep both tabs open and try Connect again.'
+      : 'A direct connection could not open and a relay is unavailable. Try both devices on the same Wi-Fi, then use Connect.';
   }
 
   private target(id = state().recipient) {

@@ -3,12 +3,50 @@
 import {Bridge} from '/src/lib/bridge.ts';
 import {useSession} from '/src/store/session.ts';
 import {useTransfers} from '/src/store/transfers.ts';
+import {createElement} from 'react';
+import {flushSync} from 'react-dom';
+import {createRoot} from 'react-dom/client';
+import {ClipboardHistory} from '/src/components/ClipboardHistory.tsx';
+import '/src/style.css';
 const client = new Bridge();
 const result = document.querySelector('output');
 async function wait(get) {
   const end=Date.now()+65000;
   while(Date.now()<end){const value=get(); if(value)return value; await new Promise(r=>setTimeout(r,50));}
   throw Error('Timed out: '+useSession.getState().status+' '+useSession.getState().error);
+}
+function checkClipboardScroll() {
+  const mount = document.createElement('div');
+  mount.style.maxWidth = '340px';
+  document.body.append(mount);
+  const root = createRoot(mount);
+  const clips = [];
+  function add() {
+    const id = clips.length + 1;
+    clips.push({id:String(id),text:'Note '+id,at:Date.now(),source:id%2?'You':'User 2',slot:id%2?1:2,sentByMe:!!(id%2)});
+  }
+  function render() {
+    flushSync(() => root.render(createElement(ClipboardHistory, {clips:[...clips],ready:true,clear(){},copy(){}})));
+    return mount.querySelector('.feed');
+  }
+  try {
+    for (let index=0; index<20; index++) add();
+    const feed = render();
+    const atBottom = () => feed.scrollHeight - feed.clientHeight - feed.scrollTop < 2;
+    if (!atBottom() || feed.lastElementChild.querySelector('pre').textContent !== 'Note 20') throw Error('Newest note should be at the bottom');
+    if (feed.firstElementChild.getBoundingClientRect().left <= feed.children[1].getBoundingClientRect().left) throw Error('Sent notes should be right aligned');
+    feed.scrollTop=0;
+    feed.dispatchEvent(new Event('scroll'));
+    add(); render();
+    if (feed.scrollTop > 2) throw Error('New note interrupted someone reading older messages');
+    feed.scrollTop=feed.scrollHeight;
+    feed.dispatchEvent(new Event('scroll'));
+    add(); render();
+    if (!atBottom()) throw Error('Clipboard stopped following new messages at the bottom');
+  } finally {
+    root.unmount();
+    mount.remove();
+  }
 }
 window.testDevice={client,state:useSession.getState,subscribe:useSession.subscribe,getTransfers:useTransfers.getState};
 async function test(){
@@ -80,7 +118,8 @@ async function test(){
   if(h.getUint32(archive.length-22,true)!==0x06054b50)throw Error('Missing ZIP directory');
   const thirdQueue = third.getTransfers().queue;
   if (thirdQueue.some(row => row.label.includes('Folder'))) throw Error('Folder reached the wrong device');
-  result.textContent='Passed: three devices verified, exchanged targeted and broadcast clipboard text, and transferred a 3 MiB nested folder to the selected device only.';
+  checkClipboardScroll();
+  result.textContent='Passed: three-device transfer, clipboard alignment and scroll behavior.';
   if(native) {
     const name='Module 4.1 (2).pdf';
     const sample=new File(['%PDF-1.4\nBridge download test\n%%EOF'],name,{type:'application/pdf'});

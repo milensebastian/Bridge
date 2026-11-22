@@ -1,14 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ArrowUpRight, Camera, Clipboard, Coffee, Copy, Files, Monitor, Moon, MoreHorizontal, Plus, ScanLine, ShieldCheck, Smartphone, Sun, Touchpad, X } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Camera, Clipboard, Coffee, Copy, Files, Monitor, Moon, Plus, ScanLine, ShieldCheck, Smartphone, Sun, Touchpad, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Bridge } from './lib/bridge';
-import { memberColor } from './lib/roomProfile';
 import { useSession } from './store/session';
 import {FileTools,TransferQueue} from './components/FileTools';
 import {useTouch} from './touch/session';
 import Scanner from './components/Scanner';
 import { CameraTools } from './components/CameraTools';
-import { RoomDevices } from './components/RoomDevices';
+import { RecipientPicker, RoomDevices } from './components/RoomDevices';
+import { ClipboardHistory } from './components/ClipboardHistory';
 
 const TouchTools = lazy(()=>import('./touch/TouchTools'));
 const modules = [{ name: 'Clipboard', icon: Clipboard }, { name: 'Files', icon: Files }, { name: 'Camera & scan', icon: Camera }, { name: 'Touch & sign', icon: Touchpad }];
@@ -25,7 +25,8 @@ export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('bridge-theme') === 'dark');
   const [notice, setNotice] = useState(''); const [pairLink, setPairLink] = useState(''); const [autoSync, setAutoSync] = useState(false);
   const ready = session.recipient !== undefined;
-  const verifiedCount = session.devices.filter(device => device.ready).length;
+  const verifiedDevices = session.devices.filter(device => device.ready);
+  const verifiedCount = verifiedDevices.length;
   useEffect(() => { setAutoSync(false); }, [session.recipient]);
   const start = useCallback((url?: string) => {
     lastInvite.current = url;
@@ -58,9 +59,9 @@ export default function App() {
     <main><div className="page-heading"><div><div className="eyebrow">YOUR PERSONAL WORKSPACE</div><h1>Your devices. Together.</h1><p>Send files, text and links between your phone and computer.</p></div><span className={`connection ${session.connected ? 'online' : ''}`}><i/>{session.connected ? `${verifiedCount} verified` : 'No device connected'}</span></div>
       <div className="workspace"><aside>
         <section className="pair-panel"><div className="section-heading"><h2>{session.roomActive ? 'Your room' : 'Connect a device'}</h2><Smartphone size={18}/></div>
-          {session.roomActive ? <RoomDevices bridge={bridge.current} qr={qr} report={setNotice}/> : <>
+          {session.roomActive ? <RoomDevices bridge={bridge.current} qr={qr} report={setNotice} showRecipient={tab !== 'Clipboard'}/> : <>
             {qr ? <div className="qr-wrap"><img src={qr} width="224" height="224" alt="Scan this QR code to pair your device"/></div> : <div className="pair-illustration"><div className="drawn-monitor"><span className="tiny-logo">b.</span></div><div className="drawn-phone"><span/></div><div className="connection-line"/></div>}
-            <h3>{qr ? 'Scan. Connect. Done.' : 'A bridge between screens.'}</h3><p className="pair-description">{qr ? 'Open your phone’s camera and scan the code. Keep this tab open.' : 'Pair your phone and computer to share directly, without an account.'}</p>
+            <h3>{session.connecting ? 'Joining' : qr ? 'Scan to connect' : 'A bridge between screens.'}</h3><p className="pair-description">{qr ? 'Open your phone’s camera and scan the code. Keep this tab open.' : 'Pair your phone and computer to share directly, without an account.'}</p>
             {session.connecting ? <>
               <p className="pair-description" role="status">{session.status}</p>
               <button className="full" onClick={() => bridge.current?.close()}>Cancel connection</button>
@@ -73,15 +74,35 @@ export default function App() {
         </section><div className="privacy-note"><ShieldCheck size={18}/><div><strong>Between verified devices.</strong><p>Encrypted in transit. No accounts.<br/>No clipboard stored on a server.</p></div></div>
       </aside><section className="content-panel"><nav className="tabs" aria-label="Workspace tools">{modules.map(({ name, icon: Icon }) => <button key={name} className={tab === name ? 'active' : ''} aria-current={tab === name ? 'page' : undefined} onClick={() => {setTab(name);if(name==='Touch & sign')setOpenedTouch(true);}}><Icon size={17}/><span>{name}</span>{name === 'Camera & scan' && <span className="coming-dot"/>}</button>)}</nav>
       {tab === 'Clipboard' ? <div className="clipboard-workspace"><div className="tool-heading"><div><h2>A shared clipboard</h2><p>Text, links, and little things worth sending.</p></div><span className="shortcut"><Clipboard size={16}/></span></div>
-        <form className="composer" onSubmit={event => { event.preventDefault(); void perform(async () => { if (!bridge.current) throw Error('Pair a device first.'); await bridge.current.sendText(text); setText(''); }, 'Sent to your other device'); }}><textarea aria-label="Text to send" placeholder="Paste a link, jot a note, or drop in some text…" maxLength={12000} value={text} onChange={event => setText(event.target.value)}/><div className="composer-footer"><span>{text.length ? `${text.length.toLocaleString()} / 12,000` : 'Only shared when you send.'}</span><button className="primary" disabled={!ready || !text.trim()} type="submit">Send to device</button></div></form>
+        <ClipboardHistory clips={session.clips} ready={ready} clear={() => session.set({ clips: [] })}
+          copy={value => void perform(() => navigator.clipboard.writeText(value), 'Copied to clipboard')}/>
+        <form className="composer" onSubmit={event => {
+          event.preventDefault();
+          if (!bridge.current || session.recipient === undefined) return;
+          const current = bridge.current;
+          const recipient = session.recipient;
+          const draft = text;
+          void perform(async () => {
+            await current.sendText(draft, false, recipient);
+            setText(value => value === draft ? '' : value);
+          }, 'Clipboard sent');
+        }}>
+          <textarea aria-label="Text to send" placeholder="Paste a link, jot a note, or drop in some text…"
+            maxLength={12000} value={text} onChange={event => setText(event.target.value)}/>
+          <div className="composer-footer">
+            <span>{text.length ? `${text.length.toLocaleString()} / 12,000` : 'Only shared when you send.'}</span>
+            <div className="composer-actions">
+              <RecipientPicker devices={verifiedDevices} recipient={session.recipient} onSelect={id => bridge.current?.select(id)}/>
+              <button className="primary" disabled={!ready || !text.trim()} type="submit">Send</button>
+            </div>
+          </div>
+        </form>
         {verifiedCount > 1 && <button className="text-button" disabled={!text.trim()} onClick={() => void perform(async () => {
           if (!bridge.current) return;
           await bridge.current.sendText(text, true);
           setText('');
         }, 'Sent to verified devices')}>Send to all verified devices</button>}
         <div className="sync-row"><button className="text-button" disabled={!ready} onClick={() => void perform(sync, 'Clipboard sent')}><Copy size={15}/>Sync clipboard now</button><label><input type="checkbox" checked={autoSync} onChange={event => setAutoSync(event.target.checked)}/>Sync when I return</label></div>
-        <div className="history-heading"><h3>Shared this session <span>{session.clips.length}</span></h3><button className="text-button" disabled={!session.clips.length} onClick={() => session.set({ clips: [] })}>Clear history</button></div>
-        {session.clips.length ? <div className="feed">{session.clips.map(clip => { let url: string | undefined; try { const candidate = new URL(clip.text.trim()); if (['https:', 'http:'].includes(candidate.protocol)) url = candidate.href; } catch { /* Plain text. */ } return <article className={clip.sentByMe ? 'clip clip-sent' : 'clip'} key={clip.id} style={{ '--clip-tint': memberColor(clip.slot) } as CSSProperties}><div className="clip-meta"><span className="clip-sender" dir="auto">{clip.source}</span><time>{new Date(clip.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><button className="icon-button" aria-label="Copy shared text" onClick={() => void perform(() => navigator.clipboard.writeText(clip.text), 'Copied to clipboard')}><Copy size={15}/></button>{url && <a href={url} target="_blank" rel="noreferrer" aria-label="Open shared link"><ArrowUpRight size={17}/></a>}</div><pre>{clip.text}</pre></article>; })}</div> : <div className="empty-state"><div className="empty-icon"><Clipboard size={24} strokeWidth={1.3}/><span><MoreHorizontal size={17}/></span></div><h3>A clean slate.</h3><p>Your shared text and links will appear here.<br/>{ready ? 'Send your first note above.' : 'Connect a device to send your first note.'}</p></div>}
         <div className="workspace-note"><ShieldCheck size={14}/><span>Session history stays in this tab and clears when you disconnect.</span></div></div> : tab === 'Files' ? <FileTools bridge={bridge.current} ready={ready} report={setNotice}/> : tab === 'Camera & scan' ? <CameraTools bridge={bridge.current} ready={ready} report={setNotice}/> : tab === 'Touch & sign' ? null : <div className="upcoming"><div className="empty-icon"><Touchpad size={25}/></div><span className="eyebrow">COMING IN A LATER MILESTONE</span><h2>{tab}</h2><p>Sign with your phone and control presentations from your seat.</p><button onClick={() => setTab('Clipboard')}>Back to clipboard</button></div>}
       {openedTouch && <Suspense fallback={<p role="status">Opening presenter�</p>}><TouchTools bridge={bridge.current} ready={ready} report={setNotice} visible={tab==='Touch & sign'}/></Suspense>}
       <TransferQueue bridge={bridge.current} report={setNotice}/>

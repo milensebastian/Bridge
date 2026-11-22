@@ -13,5 +13,5 @@ type Session = {
 export const useSession = create<Session>(set => ({
   status: 'Not connected', url: '', roomActive: false, deviceId: 0, devices: [],
   connected: false, connecting: false, error: '', clips: [], route: '',
-  set: state => set(state), add: clip => set(state => ({ clips: [clip, ...state.clips].slice(0, 50) })),
+  set: state => set(state), add: clip => set(state => ({ clips: [...state.clips, clip].slice(-50) })),
 }));

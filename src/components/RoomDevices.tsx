@@ -1,19 +1,44 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Link, Pencil, Unplug } from 'lucide-react';
 import type { Bridge } from '../lib/bridge';
 import { memberColor, ROOM_NAME_LIMIT, ROOM_SIZE, userLabel } from '../lib/roomProfile';
-import { useSession } from '../store/session';
+import { useSession, type Device } from '../store/session';
 
 function MemberColor({ slot }: { slot: number }) {
   return <span className="member-color" aria-hidden="true" style={{ backgroundColor: memberColor(slot) }}/>;
 }
 
-export function RoomDevices({ bridge, qr, report }: { bridge?: Bridge; qr: string; report: (message: string) => void }) {
+export function RecipientPicker({ devices, recipient, onSelect }: {
+  devices: Device[]; recipient?: number; onSelect: (id: number) => void;
+}) {
+  const selected = devices.find(device => device.id === recipient);
+  return <label className="room-recipient">
+    <span className="member-name">{selected && <MemberColor slot={selected.slot}/>}Send to</span>
+    <select value={recipient ?? ''} disabled={!devices.length} onChange={event => onSelect(Number(event.target.value))}>
+      <option value="" disabled>{devices.length ? 'Choose a device' : 'No verified devices yet'}</option>
+      {devices.map(device => <option key={device.id} value={device.id}>
+        {device.customName ? `${device.name} · ${userLabel(device.slot)}` : device.name}
+      </option>)}
+    </select>
+  </label>;
+}
+
+const pairingSteps = ['Joining', 'Confirm symbols', 'Connected'];
+
+export function RoomDevices({ bridge, qr, report, showRecipient }: {
+  bridge?: Bridge; qr: string; report: (message: string) => void; showRecipient: boolean;
+}) {
   const { deviceId, devices, profile, recipient, url } = useSession();
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
   const verified = devices.filter(device => device.ready);
-  const selected = verified.find(device => device.id === recipient);
+  const nextToVerify = devices.find(device => device.sas && !device.verified && !device.ready)?.id;
+  const verification = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (nextToVerify !== undefined && matchMedia('(max-width: 800px), (pointer: coarse)').matches) {
+      verification.current?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [nextToVerify]);
   const ownSlot = profile?.slot ?? (deviceId - 1) % ROOM_SIZE + 1;
   const fallback = userLabel(ownSlot);
   const label = profile?.name || fallback;
@@ -51,22 +76,29 @@ export function RoomDevices({ bridge, qr, report }: { bridge?: Bridge; qr: strin
         .then(() => report('Room invite copied')).catch(showError)}><Link size={15}/>Copy room invite</button>
     </>}
     <ul className="room-roster" aria-label="Room devices">
-      {devices.map(device => <li key={device.id}>
+      {devices.map(device => {
+        const step = device.ready ? 2 : device.sas ? 1 : 0;
+        const route = device.route === 'TURN relay' ? 'Via relay' : device.route === 'Direct P2P' ? 'Direct' : '';
+        return <li key={device.id}>
         <div className="room-device-heading">
           <div className="member-name">
             <MemberColor slot={device.slot}/><strong dir="auto">{device.name}</strong>
             {device.customName && <span>· {userLabel(device.slot)}</span>}
           </div>
-          <span>{device.ready ? 'Connected' : device.failed ? 'Connection failed' : device.sas && !device.verified ? 'Verify' : device.connected || device.connecting ? 'Connecting…' : 'In room'}</span>
+          <span>{device.ready ? route || 'Connected' : device.failed ? 'Connection failed' : !device.connecting && !device.connected ? 'In room' : ''}</span>
         </div>
-        {device.sas && !device.ready && <>
+        {!device.failed && (device.connecting || device.connected) && <ol className="pair-steps" aria-label={`Pairing progress for ${device.name}`}>
+          {pairingSteps.map((label, index) => <li key={label} aria-current={step === index ? 'step' : undefined}
+            className={step > index ? 'step-done' : undefined}>{label}</li>)}
+        </ol>}
+        {device.sas && !device.ready && <div className="verify-card" ref={device.id === nextToVerify ? verification : undefined}>
           <p>Compare these symbols on both devices.</p>
           <div className="sas" aria-label={`Verification symbols for ${device.name}`}>{device.sas}</div>
           {device.verified ? <p>{device.connected ? 'Waiting for the other device to confirm.' : 'Confirmed here. Waiting for the connection to open.'}</p> :
             <button className="primary full" onClick={() => void bridge?.verify(device.id).catch(showError)}>
               <Check size={16}/>The symbols match
             </button>}
-        </>}
+        </div>}
         {device.failed && <p role="status">{bridge?.connectionHelp}</p>}
         {device.connected || device.connecting ?
           <button className="text-button" onClick={() => bridge?.disconnect(device.id)}>
@@ -75,17 +107,11 @@ export function RoomDevices({ bridge, qr, report }: { bridge?: Bridge; qr: strin
           <button className="full" onClick={() => {
             try { bridge?.connect(device.id); } catch (error) { showError(error); }
           }}>Connect to {device.name}</button>}
-      </li>)}
+      </li>;
+      })}
     </ul>
-    {verified.length > 0 && <label className="room-recipient">
-      <span className="member-name">{selected && <MemberColor slot={selected.slot}/>}Send to</span>
-      <select value={recipient ?? ''} onChange={event => bridge?.select(Number(event.target.value) || undefined)}>
-        <option value="" disabled>Choose a device</option>
-        {verified.map(device => <option key={device.id} value={device.id}>
-          {device.customName ? `${device.name} · ${userLabel(device.slot)}` : device.name}
-        </option>)}
-      </select>
-    </label>}
+    {showRecipient && verified.length > 0 &&
+      <RecipientPicker devices={verified} recipient={recipient} onSelect={id => bridge?.select(id)}/>}
     <button className="text-button" onClick={() => bridge?.close()}><Unplug size={15}/>{deviceId === 1 ? 'End room' : 'Leave room'}</button>
   </div>;
 }

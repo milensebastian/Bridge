@@ -55,8 +55,12 @@ export async function saveDownload(download:Download) {
     const anchor=document.createElement('a');
     anchor.href=download.url;anchor.download=download.name;
     document.body.append(anchor);anchor.click();anchor.remove();
-    return;
+    return 'requested';
   }
   const destination=await picker.call(window,{suggestedName:download.name});
-  await download.file.stream().pipeTo(await destination.createWritable());
+  const cache = await receivedCache();
+  const directory = await cache.getDirectoryHandle(download.directory);
+  const source = await (await directory.getFileHandle('payload')).getFile();
+  await source.stream().pipeTo(await destination.createWritable());
+  return 'saved';
 }

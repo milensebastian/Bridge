@@ -11,6 +11,38 @@
 .file-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .file-drop .file-actions{justify-content:center}
 .file-actions button,.transfer-queue a{min-height:44px}
+:root{color-scheme:light;--scroll-thumb:color-mix(in srgb,var(--muted) 49%,var(--surface));--scroll-track:var(--subtle);scrollbar-color:var(--scroll-thumb) var(--scroll-track)}
+:root[data-theme="dark"]{color-scheme:dark}
+*{scrollbar-width:thin}
+@supports not (scrollbar-width:thin){
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-track{background:var(--scroll-track);border-radius:8px}
+  ::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border:2px solid var(--scroll-track);border-radius:8px}
+}
+.pair-steps{display:flex;flex-wrap:wrap;gap:4px 7px;list-style:none;padding:0;margin:8px 0;font-size:.6875rem;color:var(--muted)}
+.room-roster .pair-steps li{border:0;padding:0}
+.pair-steps li+li::before{content:'→';margin-right:7px;color:var(--muted)}
+.pair-steps [aria-current="step"]{font-weight:650;color:var(--ink)}
+.pair-steps .step-done{color:var(--accent)}
+.verify-card{padding:10px;background:var(--subtle);border:1px solid var(--line);border-radius:7px;scroll-margin-block:16px}
+.clipboard-workspace .history-heading{margin-top:18px}
+.clipboard-workspace .composer{margin-top:12px}
+.composer-actions{display:flex;align-items:center;gap:8px;min-width:0}
+.composer-actions .room-recipient{display:flex;align-items:center;gap:6px;margin:0;min-width:0}
+.composer-actions .room-recipient>span{flex-wrap:nowrap;white-space:nowrap;color:var(--muted)}
+.composer-actions .room-recipient select{min-width:0;max-width:164px;min-height:34px;font-size:.75rem;padding:5px}
+.composer-actions .primary{white-space:nowrap}
+.received-file{padding-top:8px}
+.received-file>p:first-child{font-weight:600;color:var(--ink)}
+.received-file>p:last-child{margin-top:6px}
+.received-file .save-error{color:var(--ink);border-left:2px solid #b46f60;padding-left:8px;margin-top:4px}
+@media(max-width:560px){
+  .composer-footer{align-items:flex-start;flex-direction:column;gap:8px}
+  .composer-actions{width:100%}
+  .composer-actions .room-recipient{flex:1}
+  .composer-actions .room-recipient select{flex:1;max-width:none;min-height:44px}
+  .composer-actions .primary{min-height:44px}
+}
 .feed{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;padding-top:10px}
 .feed .clip{
   justify-self:start;

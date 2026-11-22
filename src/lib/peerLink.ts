@@ -51,18 +51,26 @@ export class PeerLink {
     peer.onconnectionstatechange = () => {
       if (this.disposed) return;
       if (peer.connectionState === 'failed') this.ended();
-      if (peer.connectionState === 'connected') void peer.getStats().then(stats => {
-        if (this.disposed) return;
-        stats.forEach(report => {
-          if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
-            const local = stats.get(report.localCandidateId);
-            const remote = stats.get(report.remoteCandidateId);
-            this.route = local?.candidateType === 'relay' || remote?.candidateType === 'relay' ? 'TURN relay' : 'Direct P2P';
-            this.changed();
-          }
-        });
-      }).catch(this.fail);
+      if (peer.connectionState === 'connected') void this.refreshRoute();
     };
+  }
+
+  private async refreshRoute() {
+    const stats = await this.peer.getStats().catch(() => undefined);
+    if (!stats || this.disposed) return;
+    const reports = [...stats.values()];
+    const transport = reports.find(report => report.type === 'transport' && report.selectedCandidatePairId);
+    const pair = transport ? stats.get(transport.selectedCandidatePairId)
+      : reports.find(report => report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated);
+    if (!pair) return;
+    const local = stats.get(pair.localCandidateId)?.candidateType;
+    const remote = stats.get(pair.remoteCandidateId)?.candidateType;
+    if (!local || !remote) return;
+    const route = local === 'relay' || remote === 'relay' ? 'TURN relay' : 'Direct P2P';
+    if (this.route !== route) {
+      this.route = route;
+      this.changed();
+    }
   }
 
   private context(sender: number, motion = false) {
@@ -257,6 +265,7 @@ export class PeerLink {
       this.connected = true;
       clearTimeout(this.timeout);
       this.changed();
+      void this.refreshRoute();
       if (this.confirmed) void this.verify().catch(this.fail);
     };
     channel.onopen = opened;
