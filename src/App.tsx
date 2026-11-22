@@ -17,6 +17,7 @@ export default function App() {
   const initialPairUrl = useRef(location.pathname === '/pair' && location.search && location.hash ? location.href : undefined);
   const lastInvite = useRef<string | undefined>(undefined);
   const [tab, setTab] = useState('Clipboard'); const [text, setText] = useState('');
+  const [clipboardTarget, setClipboardTarget] = useState<number | 'all'>('all');
   const [openedTouch,setOpenedTouch]=useState(false);
   const signatureRequest=useTouch(s=>s.request);
   useEffect(()=>{if(signatureRequest){setOpenedTouch(true);setTab('Touch & sign');}},[signatureRequest]);
@@ -27,8 +28,13 @@ export default function App() {
   const ready = session.recipient !== undefined;
   const verifiedDevices = session.devices.filter(device => device.ready);
   const verifiedCount = verifiedDevices.length;
-  useEffect(() => { setAutoSync(false); }, [session.recipient]);
+  const individualTarget = clipboardTarget === 'all' ? undefined : clipboardTarget;
+  const clipboardReady = clipboardTarget === 'all' ? verifiedCount > 0 : verifiedDevices.some(device => device.id === clipboardTarget);
+  const canAutoSync = individualTarget !== undefined && clipboardReady;
+  useEffect(() => { setAutoSync(false); }, [clipboardTarget, canAutoSync]);
   const start = useCallback((url?: string) => {
+    setClipboardTarget('all');
+    setAutoSync(false);
     lastInvite.current = url;
     bridge.current?.close();
     bridge.current = new Bridge();
@@ -44,13 +50,19 @@ export default function App() {
   useEffect(() => { let cancelled = false; setQr(''); if (session.url) void QRCode.toDataURL(session.url, { width: 224, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#202423', light: '#ffffff' } }).then(value => { if (!cancelled) setQr(value); }); return () => { cancelled = true; }; }, [session.url]);
   useEffect(() => { if (notice) { const timer = setTimeout(() => setNotice(''), 4000); return () => clearTimeout(timer); } }, [notice]);
   const perform = async (action: () => Promise<void>, success?: string) => { try { await action(); if (success) setNotice(success); } catch (error) { setNotice(error instanceof Error ? error.message : 'This action is unavailable.'); } };
-  const sync = useCallback(async () => {
+  const sync = useCallback(async (target: number | 'all') => {
     const current = bridge.current;
-    const { recipient } = useSession.getState();
-    if (!current || recipient === undefined) throw Error('Choose a verified device first.');
-    await current.sendText(await navigator.clipboard.readText(), false, recipient);
+    if (!current) throw Error('Connect a verified device first.');
+    const value = await navigator.clipboard.readText();
+    if (target === 'all') await current.sendText(value, true);
+    else await current.sendText(value, false, target);
   }, []);
-  useEffect(() => { const focus = () => { if (autoSync && ready) void sync().catch(() => setNotice('Clipboard permission is needed. Use Sync clipboard to try again.')); }; window.addEventListener('focus', focus); return () => window.removeEventListener('focus', focus); }, [autoSync, ready, sync]);
+  useEffect(() => {
+    if (!autoSync || !canAutoSync || individualTarget === undefined) return;
+    const focus = () => void sync(individualTarget).catch(() => setNotice('Could not sync the clipboard. Check the device connection and clipboard permission.'));
+    window.addEventListener('focus', focus);
+    return () => window.removeEventListener('focus', focus);
+  }, [autoSync, canAutoSync, individualTarget, sync]);
   const scanned = useCallback((url: string) => { setScanner(false); start(url); }, [start]);
   return <div className={`app ${mode}`}>
     <header className="topbar"><a className="brand" href="/" aria-label="Bridge home"><span className="brand-symbol"><span /><span /></span>bridge</a><div className="top-actions"><span className="local-label">A little closer, wirelessly.</span><button className="icon-button" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onClick={() => setDark(!dark)}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button><span className="divider"/><button className="mode-button" onClick={() => setMode(mode === 'desktop' ? 'mobile' : 'desktop')}>{mode === 'desktop' ? <Monitor size={16}/> : <Smartphone size={16}/>}<span>{mode === 'desktop' ? 'Desktop' : 'Companion'}</span></button>
@@ -74,16 +86,15 @@ export default function App() {
         </section><div className="privacy-note"><ShieldCheck size={18}/><div><strong>Between verified devices.</strong><p>Encrypted in transit. No accounts.<br/>No clipboard stored on a server.</p></div></div>
       </aside><section className="content-panel"><nav className="tabs" aria-label="Workspace tools">{modules.map(({ name, icon: Icon }) => <button key={name} className={tab === name ? 'active' : ''} aria-current={tab === name ? 'page' : undefined} onClick={() => {setTab(name);if(name==='Touch & sign')setOpenedTouch(true);}}><Icon size={17}/><span>{name}</span>{name === 'Camera & scan' && <span className="coming-dot"/>}</button>)}</nav>
       {tab === 'Clipboard' ? <div className="clipboard-workspace"><div className="tool-heading"><div><h2>A shared clipboard</h2><p>Text, links, and little things worth sending.</p></div><span className="shortcut"><Clipboard size={16}/></span></div>
-        <ClipboardHistory clips={session.clips} ready={ready} clear={() => session.set({ clips: [] })}
+        <ClipboardHistory clips={session.clips} ready={clipboardReady} clear={() => session.set({ clips: [] })}
           copy={value => void perform(() => navigator.clipboard.writeText(value), 'Copied to clipboard')}/>
         <form className="composer" onSubmit={event => {
           event.preventDefault();
-          if (!bridge.current || session.recipient === undefined) return;
+          if (!bridge.current || !clipboardReady || !text.trim()) return;
           const current = bridge.current;
-          const recipient = session.recipient;
           const draft = text;
           void perform(async () => {
-            await current.sendText(draft, false, recipient);
+            await current.sendText(draft, clipboardTarget === 'all', individualTarget);
             setText(value => value === draft ? '' : value);
           }, 'Clipboard sent');
         }}>
@@ -92,17 +103,17 @@ export default function App() {
           <div className="composer-footer">
             <span>{text.length ? `${text.length.toLocaleString()} / 12,000` : 'Only shared when you send.'}</span>
             <div className="composer-actions">
-              <RecipientPicker devices={verifiedDevices} recipient={session.recipient} onSelect={id => bridge.current?.select(id)}/>
-              <button className="primary" disabled={!ready || !text.trim()} type="submit">Send</button>
+              <RecipientPicker devices={verifiedDevices} recipient={individualTarget} onSelect={setClipboardTarget}
+                all={{ selected: clipboardTarget === 'all', select: () => setClipboardTarget('all') }}/>
+              <button className="primary" disabled={!clipboardReady || !text.trim()} type="submit">Send</button>
             </div>
           </div>
         </form>
-        {verifiedCount > 1 && <button className="text-button" disabled={!text.trim()} onClick={() => void perform(async () => {
-          if (!bridge.current) return;
-          await bridge.current.sendText(text, true);
-          setText('');
-        }, 'Sent to verified devices')}>Send to all verified devices</button>}
-        <div className="sync-row"><button className="text-button" disabled={!ready} onClick={() => void perform(sync, 'Clipboard sent')}><Copy size={15}/>Sync clipboard now</button><label><input type="checkbox" checked={autoSync} onChange={event => setAutoSync(event.target.checked)}/>Sync when I return</label></div>
+        <div className="sync-row">
+          <button className="text-button" disabled={!clipboardReady} onClick={() => void perform(() => sync(clipboardTarget), 'Clipboard sent')}><Copy size={15}/>Sync clipboard now</button>
+          <label><input type="checkbox" disabled={!canAutoSync} checked={autoSync && canAutoSync}
+            onChange={event => setAutoSync(event.target.checked)}/>Sync when I return{clipboardTarget === 'all' ? ' (one device only)' : ''}</label>
+        </div>
         <div className="workspace-note"><ShieldCheck size={14}/><span>Session history stays in this tab and clears when you disconnect.</span></div></div> : tab === 'Files' ? <FileTools bridge={bridge.current} ready={ready} report={setNotice}/> : tab === 'Camera & scan' ? <CameraTools bridge={bridge.current} ready={ready} report={setNotice}/> : tab === 'Touch & sign' ? null : <div className="upcoming"><div className="empty-icon"><Touchpad size={25}/></div><span className="eyebrow">COMING IN A LATER MILESTONE</span><h2>{tab}</h2><p>Sign with your phone and control presentations from your seat.</p><button onClick={() => setTab('Clipboard')}>Back to clipboard</button></div>}
       {openedTouch && <Suspense fallback={<p role="status">Opening presenter�</p>}><TouchTools bridge={bridge.current} ready={ready} report={setNotice} visible={tab==='Touch & sign'}/></Suspense>}
       <TransferQueue bridge={bridge.current} report={setNotice}/>

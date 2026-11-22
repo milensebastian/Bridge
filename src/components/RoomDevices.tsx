@@ -8,14 +8,21 @@ function MemberColor({ slot }: { slot: number }) {
   return <span className="member-color" aria-hidden="true" style={{ backgroundColor: memberColor(slot) }}/>;
 }
 
-export function RecipientPicker({ devices, recipient, onSelect }: {
+export function RecipientPicker({ devices, recipient, onSelect, all }: {
   devices: Device[]; recipient?: number; onSelect: (id: number) => void;
+  all?: { selected: boolean; select: () => void };
 }) {
   const selected = devices.find(device => device.id === recipient);
+  const value = all?.selected && devices.length ? 'all' : recipient ?? '';
   return <label className="room-recipient">
     <span className="member-name">{selected && <MemberColor slot={selected.slot}/>}Send to</span>
-    <select value={recipient ?? ''} disabled={!devices.length} onChange={event => onSelect(Number(event.target.value))}>
+    <select value={value} disabled={!devices.length} onChange={event => {
+      if (event.target.value === 'all') all?.select();
+      else onSelect(Number(event.target.value));
+    }}>
       <option value="" disabled>{devices.length ? 'Choose a device' : 'No verified devices yet'}</option>
+      {all && devices.length > 0 && <option value="all">All verified devices</option>}
+      {recipient !== undefined && !selected && <option value={recipient} disabled>Device disconnected</option>}
       {devices.map(device => <option key={device.id} value={device.id}>
         {device.customName ? `${device.name} · ${userLabel(device.slot)}` : device.name}
       </option>)}
