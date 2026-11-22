@@ -11,13 +11,18 @@
 .file-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .file-drop .file-actions{justify-content:center}
 .file-actions button,.transfer-queue a{min-height:44px}
-.feed{display:grid;gap:8px;padding-top:10px}
+.feed{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;padding-top:10px}
 .feed .clip{
+  justify-self:start;
+  width:fit-content;
+  min-width:min(10rem,100%);
+  max-width:min(90%,42rem);
   background:color-mix(in srgb,var(--clip-tint,var(--accent)) 12%,transparent);
   border:1px solid color-mix(in srgb,var(--clip-tint,var(--accent)) 30%,var(--line));
   border-radius:7px;
   padding:9px 13px 11px;
 }
+.feed .clip-sent{justify-self:end}
 [data-theme="dark"] .feed .clip{background:color-mix(in srgb,var(--clip-tint,var(--accent)) 16%,transparent)}
 .clip-sender{color:var(--ink);font-weight:550;overflow-wrap:anywhere;min-width:0}
 .clip-meta time{white-space:nowrap}

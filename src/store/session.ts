@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { RoomProfile } from '../lib/roomProfile';
-export type Clip = { id: string; text: string; at: number; source: string; slot: number };
+export type Clip = { id: string; text: string; at: number; source: string; slot: number; sentByMe: boolean };
 export type Device = {
   id: number; slot: number; name: string; customName: boolean; connected: boolean; connecting: boolean;
   verified: boolean; ready: boolean; failed: boolean; sas: string; route: string;

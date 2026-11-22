@@ -243,7 +243,7 @@ export class Bridge {
         if (link.connected) this.fail('The device disconnected. Use Connect to try again.');
       },
       this.fail,
-      text => state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: this.label(id), slot: this.memberSlot(id) }),
+      text => state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: this.label(id), slot: this.memberSlot(id), sentByMe: false }),
       message => {
         if (message.action === 'slides') this.slides.set(id, message);
         if (state().recipient === id) receiveTouch(message);
@@ -309,7 +309,7 @@ export class Bridge {
     if (!links.length) throw Error('Verify a device first.');
     const results = await Promise.allSettled(links.map(link => link.sendText(text)));
     const sent = results.filter(result => result.status === 'fulfilled').length;
-    if (sent && !this.disposed) state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You', slot: this.memberSlot(this.id) });
+    if (sent && !this.disposed) state().add({ id: crypto.randomUUID(), text, at: Date.now(), source: 'You', slot: this.memberSlot(this.id), sentByMe: true });
     if (sent !== links.length) throw Error(`Sent to ${sent} of ${links.length} devices.`);
   }
 
