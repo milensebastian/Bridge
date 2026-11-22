@@ -13,9 +13,14 @@ type Notice = { type: 'joined'; id: number; members: number[]; turnServer?: RTCI
   | RoomSignal;
 
 const state = useSession.getState;
+const SIGNAL_WAIT = 85_000;
+const SIGNAL_ATTEMPT = 12_000;
+const SIGNAL_RETRY = 2_500;
 
 export class Bridge {
   private socket?: WebSocket;
+  private signalTimer?: ReturnType<typeof setTimeout>;
+  private wakeRequest?: AbortController;
   private identity?: CryptoKeyPair;
   private ownKey = '';
   private hostKey = '';
@@ -59,6 +64,7 @@ export class Bridge {
   }
 
   async start(pairUrl?: string) {
+    state().set({ status: 'Connecting to the signaling server…', connecting: true, error: '' });
     try {
       if (!globalThis.crypto?.subtle) throw Error('Use HTTPS (or localhost) to enable secure pairing.');
       this.identity = await createIdentity();
@@ -81,26 +87,65 @@ export class Bridge {
       });
       const signalUrl = import.meta.env.VITE_RELAY_URL || import.meta.env.VITE_SIGNAL_URL
         || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/signal`;
-      const socket = this.socket = new WebSocket(signalUrl);
-      state().set({ status: 'Preparing connection', error: '' });
-      socket.onopen = () => this.signal({ type: 'join', version: 2, room: this.room, role: pairUrl ? 'guest' : 'host' });
-      socket.onerror = () => this.fail('Cannot reach the signaling server.');
-      socket.onclose = () => {
-        if (this.disposed) return;
-        const error = state().error || 'Room closed or invite expired. Start or join a new room.';
+      this.openSignal(signalUrl, pairUrl ? 'guest' : 'host', Date.now() + SIGNAL_WAIT);
+    } catch (error) {
+      if (this.disposed) return;
+      this.close();
+      state().set({ error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private openSignal(url: string, role: 'guest' | 'host', deadline: number) {
+    if (this.disposed) return;
+    const socket = this.socket = new WebSocket(url);
+    const current = () => !this.disposed && this.socket === socket;
+    let rejection: string | undefined;
+    const retry = () => {
+      if (!current()) return;
+      clearTimeout(this.signalTimer);
+      if (this.id || rejection || deadline - Date.now() <= SIGNAL_RETRY) {
+        const error = rejection || (this.id
+          ? 'The signaling connection closed. Start or join a new room.'
+          : 'Cannot reach the signaling server after several tries. Try another network or turn off your VPN, then retry.');
         this.close();
         state().set({ error });
-      };
-      socket.onmessage = event => {
-        if (this.disposed) return;
-        try { this.handle(JSON.parse(event.data as string) as Notice); }
-        catch (error) { this.fail(error); socket.close(); }
-      };
-    } catch (error) { this.fail(error); }
+        return;
+      }
+      this.socket = undefined;
+      socket.close();
+      state().set({ status: 'Still connecting. The free server may be waking up…' });
+      if (!this.wakeRequest) {
+        const health = new URL('/health', url);
+        health.protocol = health.protocol === 'wss:' ? 'https:' : 'http:';
+        this.wakeRequest = new AbortController();
+        void fetch(health, { mode: 'no-cors', cache: 'no-store', signal: this.wakeRequest.signal }).catch(() => {});
+      }
+      this.signalTimer = setTimeout(() => this.openSignal(url, role, deadline), SIGNAL_RETRY);
+    };
+    socket.onopen = () => {
+      if (current()) this.signal({ type: 'join', version: 2, room: this.room, role });
+    };
+    socket.onclose = retry;
+    socket.onmessage = event => {
+      if (!current()) return;
+      try {
+        const message = JSON.parse(event.data as string) as Notice;
+        if (message.type === 'error') throw Error(message.message);
+        this.handle(message);
+        if (message.type === 'joined') {
+          clearTimeout(this.signalTimer);
+          this.wakeRequest?.abort();
+          state().set({ connecting: false });
+        }
+      } catch (error) {
+        rejection = error instanceof Error ? error.message : String(error);
+        retry();
+      }
+    };
+    this.signalTimer = setTimeout(retry, Math.min(SIGNAL_ATTEMPT, Math.max(1, deadline - Date.now())));
   }
 
   private handle(message: Notice) {
-    if (message.type === 'error') { this.fail(message.message); return; }
     if (message.type === 'joined') {
       if (!Number.isSafeInteger(message.id) || !Array.isArray(message.members)) {
         throw Error('The signaling server needs the room update before group pairing can work.');
@@ -223,13 +268,15 @@ export class Bridge {
   close() {
     if (this.disposed) return;
     this.disposed = true;
+    clearTimeout(this.signalTimer);
+    this.wakeRequest?.abort();
     this.socket?.close();
     for (const link of this.links.values()) link.close();
     this.links.clear();
     this.queues.clear();
     resetTouch();
     useTransfers.setState(s => ({ queue: s.queue.filter(row => row.download) }));
-    state().set({ connected: false, roomActive: false, deviceId: 0, devices: [], recipient: undefined,
+    state().set({ connected: false, connecting: false, roomActive: false, deviceId: 0, devices: [], recipient: undefined,
       url: '', clips: [], error: '', status: 'Not connected', route: '' });
   }
 }

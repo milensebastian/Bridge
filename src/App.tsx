@@ -14,6 +14,7 @@ const modules = [{ name: 'Clipboard', icon: Clipboard }, { name: 'Files', icon: 
 export default function App() {
   const session = useSession(); const bridge = useRef<Bridge | undefined>(undefined);
   const initialPairUrl = useRef(location.pathname === '/pair' && location.search && location.hash ? location.href : undefined);
+  const lastInvite = useRef<string | undefined>(undefined);
   const [tab, setTab] = useState('Clipboard'); const [text, setText] = useState('');
   const [openedTouch,setOpenedTouch]=useState(false);
   const signatureRequest=useTouch(s=>s.request);
@@ -25,7 +26,12 @@ export default function App() {
   const ready = session.recipient !== undefined;
   const verifiedCount = session.devices.filter(device => device.ready).length;
   useEffect(() => { setAutoSync(false); }, [session.recipient]);
-  const start = useCallback((url?: string) => { bridge.current?.close(); bridge.current = new Bridge(); void bridge.current.start(url); }, []);
+  const start = useCallback((url?: string) => {
+    lastInvite.current = url;
+    bridge.current?.close();
+    bridge.current = new Bridge();
+    void bridge.current.start(url);
+  }, []);
   useEffect(() => {
     if (initialPairUrl.current) {
       history.replaceState(null, '', '/pair'); start(initialPairUrl.current); setMode('mobile');
@@ -54,8 +60,14 @@ export default function App() {
           {session.roomActive ? <RoomDevices bridge={bridge.current} qr={qr} report={setNotice}/> : <>
             {qr ? <div className="qr-wrap"><img src={qr} width="224" height="224" alt="Scan this QR code to pair your device"/></div> : <div className="pair-illustration"><div className="drawn-monitor"><span className="tiny-logo">b.</span></div><div className="drawn-phone"><span/></div><div className="connection-line"/></div>}
             <h3>{qr ? 'Scan. Connect. Done.' : 'A bridge between screens.'}</h3><p className="pair-description">{qr ? 'Open your phone’s camera and scan the code. Keep this tab open.' : 'Pair your phone and computer to share directly, without an account.'}</p>
-            <button className="primary full" onClick={() => start()}><Plus size={16}/>Create a room</button>
+            {session.connecting ? <>
+              <p className="pair-description" role="status">{session.status}</p>
+              <button className="full" onClick={() => bridge.current?.close()}>Cancel connection</button>
+            </> : <>
+            {session.error && <p className="pair-description" role="alert">{session.error}</p>}
+            <button className="primary full" onClick={() => start(lastInvite.current && session.error ? lastInvite.current : undefined)}><Plus size={16}/>{lastInvite.current && session.error ? 'Retry joining room' : 'Create a room'}</button>
             <div className="or"><span/>or join another device<span/></div><button className="full" onClick={() => setScanner(true)}><ScanLine size={16}/>Scan a QR code</button><form className="join-form" onSubmit={event => { event.preventDefault(); start(pairLink); }}><input aria-label="Pairing link" placeholder="Paste a pairing link" type="url" required value={pairLink} onChange={event => setPairLink(event.target.value)}/><button aria-label="Join pairing link" type="submit" disabled={!pairLink.trim()}>Join</button></form>
+            </>}
           </>}
         </section><div className="privacy-note"><ShieldCheck size={18}/><div><strong>Between verified devices.</strong><p>Encrypted in transit. No accounts.<br/>No clipboard stored on a server.</p></div></div>
       </aside><section className="content-panel"><nav className="tabs" aria-label="Workspace tools">{modules.map(({ name, icon: Icon }) => <button key={name} className={tab === name ? 'active' : ''} aria-current={tab === name ? 'page' : undefined} onClick={() => {setTab(name);if(name==='Touch & sign')setOpenedTouch(true);}}><Icon size={17}/><span>{name}</span>{name === 'Camera & scan' && <span className="coming-dot"/>}</button>)}</nav>
@@ -73,7 +85,7 @@ export default function App() {
       {openedTouch && <Suspense fallback={<p role="status">Opening presenter�</p>}><TouchTools bridge={bridge.current} ready={ready} report={setNotice} visible={tab==='Touch & sign'}/></Suspense>}
       <TransferQueue bridge={bridge.current} report={setNotice}/>
       </section></div>
-      {session.error && <div className="error" role="alert">{session.error}<button className="icon-button" aria-label="Dismiss error" onClick={() => session.set({ error: '' })}><X size={16}/></button></div>}
+      {session.roomActive && session.error && <div className="error" role="alert">{session.error}<button className="icon-button" aria-label="Dismiss error" onClick={() => session.set({ error: '' })}><X size={16}/></button></div>}
       <footer><nav aria-label="Bridge resources"><a href="/guide/" target="_blank" rel="noopener noreferrer">How to send files</a><button className="text-button" onClick={()=>void perform(async()=>{
         const url='https://bridge-eight-beryl.vercel.app/';
         if(navigator.share){try{await navigator.share({title:'Bridge',text:'Send files between your phone and laptop.',url});return;}catch(error){if(error instanceof Error && error.name==='AbortError')return;}}
